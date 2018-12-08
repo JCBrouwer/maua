@@ -40,7 +40,7 @@ Training took about 12 hours on a GTX 1080 Ti.
 
 Training took about 10 hours on a GTX 1080 Ti.
 
-From left to right: the input to the network, the result for Maua pix2pix without multiscale GAN, Maua pix2pix with no_vgg=False, and Maua pix2pix with no_vgg=True.
+From left to right: the input to the network, the result for pix2pix without multiscale GAN, pix2pix with no_vgg=False, and pix2pix with no_vgg=True.
 
 The implementation of pix2pixHD is still a work in progress. Expect an improvement in results when using the VGG feature loss in future versions.
 
@@ -52,15 +52,23 @@ From left to right: the content image, style image, output using NeuralStyle, an
 
 ## Roadmap
 
-Below is a list of planned features and improvements for v1.0:
+Below is a list of planned features and improvements:
 
 - Style Transfer
     - Tiling
     - Optic flow weighting
     - Segmentation maps
+	- Deep painterly harmonization
 - Pix2Pix
     - Easy frame prediction models
+        - Frechet video distance loss (pretrained I3D feature loss)
+        - Scheduled sampling
     - Segmentation & instance maps
+- ProGAN
+    - Conditional ProGAN
+	- Self attention loss
+	- Relativistic hinge loss
+	- Ganstability loss
 - Video / GLWindow
     - Video writer
     - MIDI/keyboard interactivity
@@ -70,7 +78,10 @@ Below is a list of planned features and improvements for v1.0:
     - CycleGAN
     - CPPNs
     - DeepDream / Lucid
-    - Fully Adversarial Mosaics
+    - FAMos
+	- SAVP
+	- SRGAN
+	- vid2vid / RecycleGAN
 - YAML Config System
 - Gradient Checkpointing
 - Options for 32, 16, or 8 bit float/int computation
