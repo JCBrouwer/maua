@@ -164,7 +164,8 @@ class NeuralStyle(nn.Module):
 
 
     def maybe_save(self, num_calls, img, output):
-        if (self.save_iter > 0 and num_calls[0] % self.save_iter == 0) or num_calls[0] == self.num_iterations:
+        if (self.save_iter > 0 and num_calls[0] % self.save_iter == 0) or \
+            self.save_iter == 0 and num_calls[0] == self.num_iterations:
             output_filename, file_extension = os.path.splitext(output)
             if num_calls[0] == self.num_iterations:
                 filename = "%s%s"%(output_filename, file_extension)

@@ -9,9 +9,14 @@ from PIL import Image
 # We need to rescale from [0, 1] to [0, 255], convert from RGB to BGR,
 # and subtract the mean pixel.
 def preprocess(image_name, image_size):
-    image = Image.open(image_name).convert('RGB')
-    if type(image_size) is not tuple:
-        image_size = tuple([int((float(image_size) / max(image.size))*x) for x in (image.height, image.width)])
+    if isinstance(image_name, str):
+        image = Image.open(image_name).convert('RGB')
+        if type(image_size) is not tuple:
+            image_size = tuple([int((float(image_size) / max(image.size))*x) for x in (image.height, image.width)])
+    elif isinstance(image_name, Image):
+        image = image_name
+    else:
+        print('Please specifiy an image or a path to an image')
     loader = tn.Compose([tn.Resize(image_size), tn.ToTensor()])
     norm = tn.Normalize(mean=[103.939, 116.779, 123.68], std=[1,1,1])
     rgb2bgr = tn.Lambda(lambda x: x[th.LongTensor([2,1,0])])

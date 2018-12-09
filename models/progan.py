@@ -234,8 +234,7 @@ class ProGAN(BaseModel):
                                                 tv.transforms.ToTensor()])#,
                                                 # tv.transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                                 #                         std=[0.229, 0.224, 0.225])])
-            dataloader = BaseDataLoader(data_path, transforms=transforms,
-                                        batch_size=batches_dict.get(list(epochs_dict.values())[0]))
+            dataloader = BaseDataLoader(data_path, transforms=transforms, batch_size=1)
 
         dataset_size = len(dataloader)
         print('# training images = %d' % dataset_size)
