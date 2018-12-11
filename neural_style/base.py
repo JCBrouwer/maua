@@ -1,4 +1,4 @@
-import os
+import os, time
 import torch as th
 import torch.nn as nn
 import torch.optim as optim
@@ -27,7 +27,7 @@ class NeuralStyle(nn.Module):
         :param style_scale: scale of style image
         :param original_colors: whether to convert the final styled image to the original content's colors
         :param pooling: type of pooling to use between convolutional layers, options [avg, max]
-        :param model_type: model type to use for optimization, options: [vgg19, vgg16, nin]
+        :param model_type: model type to use for optimization, options: [vgg19, vgg16, nin, nyud, prune]
         :param content_layers: layers in model at which to optimize output image for content
         :param style_layers: layers in model at which to optimize output image for style
         :param num_iterations: number of iterations to optimize for
@@ -59,9 +59,6 @@ class NeuralStyle(nn.Module):
 
         self.style_blend_weights = style_blend_weights
         self.style_scale = style_scale
-        self.style_weight = style_weight
-        self.content_weight = content_weight
-        self.tv_weight = tv_weight
 
         self.original_colors = original_colors
 
@@ -88,40 +85,61 @@ class NeuralStyle(nn.Module):
                th.backends.mkl.enabled = True
            self.dtype = th.FloatTensor
 
+        self.style_weight = style_weight
+        self.content_weight = content_weight
+        self.tv_weight = tv_weight
+        self.content_layers = content_layers 
+        self.style_layers = style_layers
+        self.model_type = model_type
+        self.pooling = pooling
+        self.normalize_gradients = normalize_gradients
+        self.setup_imagenet(model_type=self.model_type, pooling=self.pooling,
+                            content_layers=self.content_layers, style_layers=self.style_layers,
+                            tv_weight=self.tv_weight, content_weight=self.content_weight,
+                            style_weight=self.style_weight, normalize_gradients=self.normalize_gradients)
+
         Image.MAX_IMAGE_PIXELS = 1000000000 # Support gigapixel images
+
+    def setup_imagenet(self, model_type, pooling, content_layers, style_layers, tv_weight,
+                       content_weight, style_weight, normalize_gradients):
 
         if model_type == 'vgg19':
             from ..models.imagenet import VGG
             imagenet = VGG(model_file='maua/modelzoo/vgg19_imagenet.pth', layer_num=19, pooling=pooling,
                            tv_weight=float(tv_weight), content_layers=content_layers, style_layers=style_layers,
-                           gpu=gpu, content_weight=float(content_weight), style_weight=float(style_weight),
+                           gpu=self.gpu, content_weight=float(content_weight), style_weight=float(style_weight),
                            layer_depth_weighting=False, normalize_gradients=normalize_gradients)
+
         elif model_type == 'vgg16':
             from ..models.imagenet import VGG
-            imagenet = VGG(layer_num=16, pooling=pooling, tv_weight=tv_weight, content_layers=content_layers,
-                           style_layers=style_layers, gpu=gpu, layer_depth_weighting=False,
-                           content_weight=float(content_weight), style_weight=float(style_weight),
-                           normalize_gradients=normalize_gradients)
+            imagenet = VGG(model_file='maua/modelzoo/vgg16_imagenet.pth', layer_num=16, pooling=pooling,
+                           tv_weight=tv_weight, content_layers=content_layers, style_layers=style_layers,
+                           gpu=self.gpu, content_weight=float(content_weight), style_weight=float(style_weight),
+                           layer_depth_weighting=False, normalize_gradients=normalize_gradients)
+
         elif model_type == 'nin':
             from ..models.imagenet import NIN
             imagenet = NIN(pooling=pooling, tv_weight=float(tv_weight), content_layers=content_layers,
-                           style_layers=style_layers, gpu=gpu, layer_depth_weighting=False,
+                           style_layers=style_layers, gpu=self.gpu, layer_depth_weighting=False,
                            content_weight=float(content_weight), style_weight=float(style_weight),
                            normalize_gradients=normalize_gradients)
+
         elif model_type == 'prune':
             from ..models.imagenet import ChannelPruning
             imagenet = ChannelPruning(pooling=pooling, tv_weight=float(tv_weight), content_layers=content_layers,
-                           style_layers=style_layers, gpu=gpu, layer_depth_weighting=False,
+                           style_layers=style_layers, gpu=self.gpu, layer_depth_weighting=False,
                            content_weight=float(content_weight), style_weight=float(style_weight),
                            normalize_gradients=normalize_gradients)
+
         elif model_type == 'nyud':
             from ..models.imagenet import NyudFcn32s
             imagenet = NyudFcn32s(pooling=pooling, tv_weight=float(tv_weight), content_layers=content_layers,
-                           style_layers=style_layers, gpu=gpu, layer_depth_weighting=False,
+                           style_layers=style_layers, gpu=self.gpu, layer_depth_weighting=False,
                            content_weight=float(content_weight), style_weight=float(style_weight),
                            normalize_gradients=normalize_gradients)
+
         else:
-            print('Model type %s not supported'%(model_type))
+            print('Model type %s not supported, options are [vgg19, vgg16, nin, nyud, prune]'%(model_type))
 
         self.net = imagenet.net
         self.content_losses = imagenet.content_losses
@@ -162,7 +180,6 @@ class NeuralStyle(nn.Module):
         return style_images, style_blend_weights
 
 
-    # Configure the optimizer
     def setup_optimizer(self, img):
         if self.optimizer == 'lbfgs':
             print("Running optimization with L-BFGS")
@@ -207,7 +224,42 @@ class NeuralStyle(nn.Module):
             disp.save(str(filename))
 
 
-    def run(self):
+    def update_params(self, param_dict):
+        update_imagenet = update_losses = False
+        for key, value in param_dict.items():
+            if getattr(self, key, 'NOT_RECOGNIZED') is 'NOT_RECOGNIZED':
+                print('Key word argument %s not recognized'%key)
+            elif getattr(self, key) is not value:
+                setattr(self, key, value)
+
+            if key in ['model_type', 'pooling', 'content_layers', 'style_layers']:
+                update_imagenet = True
+            if key in ['tv_weight', 'content_weight', 'style_weight', 'normalize_gradients']:
+                update_losses = True
+
+        if update_losses and not update_imagenet:
+            for mod in self.content_losses:
+                mod.strength = self.content_weight
+                mod.normalize = self.normalize_gradients
+            for mod in self.style_losses:
+                mod.strength = self.style_weight
+                mod.normalize = self.normalize_gradients
+            for mod in self.tv_losses:
+                mod.strength = self.tv_weight
+                mod.normalize = self.normalize_gradients
+
+        if update_imagenet:
+            del self.net, self.content_losses, self.style_losses, self.tv_losses
+            self.setup_imagenet(model_type=self.model_type, pooling=self.pooling,
+                                content_layers=self.content_layers, style_layers=self.style_layers,
+                                tv_weight=self.tv_weight, content_weight=self.content_weight,
+                                style_weight=self.style_weight, normalize_gradients=self.normalize_gradients)
+
+
+    def run(self, **kwargs):
+        start_time = time.time()
+        self.update_params(kwargs)
+
         if self.seed >= 0:
             th.manual_seed(self.seed)
             th.cuda.manual_seed(self.seed)
@@ -215,15 +267,16 @@ class NeuralStyle(nn.Module):
 
         styles, style_blend_weights = self.handle_style_images(self.style_images, self.image_size*self.style_scale)
 
-        content = preprocess(self.content_image, self.image_size)
-        content = match_color(content, styles[0]).type(self.dtype)
 
         if self.init_image is not None:
             init = preprocess(self.init_image, self.image_size)
+            content = preprocess(self.content_image, (init.size(2), init.size(3)))
         else:
+            content = preprocess(self.content_image, self.image_size)
             _, C, H, W = content.size()
             init = th.rand(C, H, W).mul(255).unsqueeze(0)
         init = match_color(init, styles[0]).type(self.dtype)
+        content = match_color(content, styles[0]).type(self.dtype)
 
         for i in self.style_losses:
             i.mode = 'None'
@@ -275,5 +328,7 @@ class NeuralStyle(nn.Module):
         ret = deprocess(img)
         if self.original_colors:
             ret = original_colors(deprocess(self.content_image), ret)
+
+        print('Finished in %ss \n'%(time.time() - start_time))
 
         return ret

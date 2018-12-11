@@ -4,8 +4,9 @@ from torch.utils.model_zoo import load_url
 import urllib.request
 from ..networks.losses import ContentLoss, StyleLoss, TVLoss
 
-# TODO make this an abstract factory?
-# TODO allow multiple TVLosses at different layers?
+# TODO make this an abstract factory
+# TODO allow multiple TVLosses at different layers
+# TODO readd build_sequential to clean up this double checkpoint download
 
 class ImageNet(nn.Module):
     def __init__(self):
@@ -78,7 +79,6 @@ class ImageNet(nn.Module):
                     p+=1
 
 
-# TODO readd build_sequential to clean up this double checkpoint download
 class VGG(ImageNet):
     def __init__(self, model_file=None, layer_num=19, pooling='max', gpu=-1, tv_weight=0,
                  content_layers="", style_layers="", num_classes=1000, layer_depth_weighting=False,
@@ -127,7 +127,6 @@ class VGG(ImageNet):
             self.net = self.net.cuda()
 
 
-# TODO check if this works in neural style / pix2pix without utils.preprocess() input first
 class NIN(ImageNet):
     def __init__(self, model_file='maua/modelzoo/nin_imagenet.pth', pooling='max', gpu=-1,
                  tv_weight=0, content_layers="", style_layers="", layer_depth_weighting=False,
@@ -135,10 +134,9 @@ class NIN(ImageNet):
         super(NIN, self).__init__()
 
         self.layer_list = {
-            'C': ['conv1', 'cccp1', 'cccp2', 'conv2', 'cccp3', 'cccp4', 'conv3', 'cccp5', 'cccp6', 'conv4-1024', 'cccp7-1024', 'cccp8-1024'],
-            'R': ['relu0', 'relu1', 'relu2', 'relu3', 'relu5', 'relu6', 'relu7', 'relu8', 'relu9', 'relu10', 'relu11', 'relu12'],
-            'P': ['pool1', 'pool2', 'pool3', 'pool4'],
-            'D': ['drop'],
+            'C': ['conv1_1', 'conv1_2', 'conv1_3', 'conv2_1', 'conv2_2', 'conv2_3', 'conv3_1', 'conv3_2', 'conv3_3', 'conv4_1', 'conv4_2', 'conv4_3'],
+            'R': ['relu1_1', 'relu1_2', 'relu1_3', 'relu2_1', 'relu2_2', 'relu2_3', 'relu3_1', 'relu3_2', 'relu3_3', 'relu4_1', 'relu4_2', 'relu4_3'],
+            'P': ['pool1', 'pool2', 'pool3', 'pool4']
         }
 
         if pooling == 'max':
@@ -201,42 +199,42 @@ class ChannelPruning(ImageNet):
         super(ChannelPruning, self).__init__()
 
         self.layer_list = {
-            'C': ['conv1', 'conv2', 'conv3', 'conv4', 'conv5', 'conv6', 'conv7', 'conv8', 'conv9', 'conv10', 'conv11', 'conv12', 'conv13'],
-            'R': ['relu0', 'relu1', 'relu2', 'relu3', 'relu5', 'relu6', 'relu7', 'relu8', 'relu9', 'relu10', 'relu11', 'relu12', 'relu13'],
+            'C': ['conv1_1', 'conv1_2', 'conv2_1', 'conv2_2', 'conv3_1', 'conv3_2', 'conv3_3', 'conv4_1', 'conv4_2', 'conv4_3', 'conv5_1', 'conv5_2', 'conv5_3'],
+            'R': ['relu1_1', 'relu1_2', 'relu2_1', 'relu2_2', 'relu3_1', 'relu3_2', 'relu3_3', 'relu4_1', 'relu4_2', 'relu4_3', 'relu5_1', 'relu5_2', 'relu5_2'],
             'P': ['pool1', 'pool2', 'pool3', 'pool4', 'pool5']
         }
 
         self.features = nn.Sequential(
             nn.Conv2d(3,24,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(24,22,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
             nn.Conv2d(22,41,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(41,51,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
             nn.Conv2d(51,108,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(108,89,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(89,111,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
             nn.Conv2d(111,184,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(184,276,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(276,228,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
             nn.Conv2d(228,512,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
             nn.Softmax()
         )
@@ -255,8 +253,6 @@ class ChannelPruning(ImageNet):
         if gpu > -1:
             self.net = self.net.cuda()
 
-        print(self.net)
-
 
 class NyudFcn32s(ImageNet):
     def __init__(self, model_file='maua/modelzoo/nyud_fcn32s.pth', pooling='max', gpu=-1,
@@ -265,50 +261,51 @@ class NyudFcn32s(ImageNet):
         super(NyudFcn32s, self).__init__()
 
         self.layer_list = {
-            'C': ['conv1', 'conv2', 'conv3', 'conv4', 'conv5', 'conv6', 'conv7', 'conv8', 'conv9', 'conv10', 'conv11', 'conv12', 'conv13', 'conv14', 'conv15', 'conv16'],
-            'R': ['relu0', 'relu1', 'relu2', 'relu3', 'relu5', 'relu6', 'relu7', 'relu8', 'relu9', 'relu10', 'relu11', 'relu12', 'relu13', 'relu14', 'relu15', 'relu16'],
+            'C': ['conv1_1', 'conv1_2', 'conv2_1', 'conv2_2', 'conv3_1', 'conv3_2', 'conv3_3', 'conv4_1', 'conv4_2', 'conv4_3', 'conv5_1', 'conv5_2', 'conv5_3', 'conv6_1', 'conv6_2', 'conv6_3'],
+            'R': ['relu1_1', 'relu1_2', 'relu2_1', 'relu2_2', 'relu3_1', 'relu3_2', 'relu3_3', 'relu4_1', 'relu4_2', 'relu4_3', 'relu5_1', 'relu5_2', 'relu5_3', 'relu6_1', 'relu6_2', 'relu6_3'],
             'P': ['pool1', 'pool2', 'pool3', 'pool4', 'pool5']
         }
 
         self.features = nn.Sequential(
             nn.Conv2d(3,64,(3, 3),(1, 1),(100, 100)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(64,64,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
             nn.Conv2d(64,128,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(128,128,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
             nn.Conv2d(128,256,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(256,256,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(256,256,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
             nn.Conv2d(256,512,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
             nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
             nn.Conv2d(512,4096,(7, 7)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Dropout(0.5),
             nn.Conv2d(4096,4096,(1, 1)),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Dropout(0.5),
-            nn.Conv2d(4096,40,(1, 1))
+            nn.Conv2d(4096,40,(1, 1)),
+            nn.ReLU(inplace=True)
         )
 
         if not os.path.isfile(model_file):
@@ -324,5 +321,3 @@ class NyudFcn32s(ImageNet):
 
         if gpu > -1:
             self.net = self.net.cuda()
-
-        print(self.net)

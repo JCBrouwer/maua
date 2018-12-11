@@ -57,8 +57,10 @@ class MultiscaleStyle(NeuralStyle):
             print("Styling at size %d x %d" % (current_size, current_size))
 
             styles, style_blend_weights = self.handle_style_images(self.style_images, current_size*self.style_scale)
+            
             init = nn.functional.interpolate(init, size=current_size)
             init = match_color(init, styles[0]).type(self.dtype)
+
             content = nn.functional.interpolate(content_final, size=current_size)
             content = match_color(content, styles[0]).type(self.dtype)
 
