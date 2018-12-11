@@ -15,7 +15,7 @@ class ProGAN(BaseModel):
     """ Wrapper around the Generator and the Discriminator """
 
     def __init__(self, depth=7, latent_size=256, num_channels=3, learning_rate=1e-3, beta_1=0,
-                 beta_2=0.99, eps=1e-8, drift=0.001, n_critic=2, use_eql=True, loss="wgan-gp",
+                 beta_2=0.99, eps=1e-8, drift=0.001, n_critic=1, use_eql=True, loss="wgan-gp",
                  use_ema=True, ema_decay=0.999, **kwargs):
         """
         constructor for the class ProGAN, extends BaseModel

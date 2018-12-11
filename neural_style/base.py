@@ -6,14 +6,19 @@ from PIL import Image
 from .utils import *
 
 class NeuralStyle(nn.Module):
-    def __init__(self, style_blend_weights=None, image_size=1024, content_weight=5,
-                 style_weight=100, tv_weight=1e-2, style_scale=1, original_colors=False,
-                 pooling='max', model_type='vgg19', content_layers='relu4_2',
-                 style_layers='relu1_1,relu2_1,relu3_1,relu4_1,relu5_1', num_iterations=1000,
-                 optimizer='lbfgs', learning_rate=1, lbfgs_num_correction=0, gpu=0, backend='cudnn',
-                 cudnn_autotune=True, seed=-1, print_iter=250, save_iter=1000):
+    def __init__(self, content_image, style_images, init_image=None, output_image=None,
+                 style_blend_weights=None, image_size=1024, content_weight=5, style_weight=25,
+                 tv_weight=5e-2, style_scale=1, original_colors=False, pooling='max', model_type='vgg19',
+                 normalize_gradients=False, content_layers='relu4_2', num_iterations=1000,
+                 style_layers='relu1_1,relu2_1,relu3_1,relu4_1,relu5_1', optimizer='lbfgs',
+                 learning_rate=1, lbfgs_num_correction=0, gpu=0, backend='cudnn', cudnn_autotune=True,
+                 seed=-1, print_iter=250, save_iter=0):
         """
         constructor for the class NeuralStyle object
+        :param content_image: image whose general structure to optimize for
+        :param style_images: image(s) whose aesthetic quality to optimize for
+        :param init_image: image to initialize optimization with (leave None for random initiliaztion)
+        :param output_image: output image path
         :param style_blend_weights: weights for style images
         :param image_size: size of output image
         :param content_weight: strength of content image in output
@@ -39,6 +44,14 @@ class NeuralStyle(nn.Module):
 
         super(NeuralStyle, self).__init__()
 
+        self.content_image = content_image
+        self.style_images = style_images.split(',')
+        self.init_image = init_image
+        if output_image is None:
+            style_names = map(lambda s: os.path.splitext(os.path.basename(s))[0], self.style_images)
+            content_name, _ = os.path.splitext(os.path.basename(self.content_image))
+            output_image = 'maua/output/%s_%s.png'%(content_name, "_".join(style_names))
+        self.output_image = output_image
         self.image_size = image_size
         self.num_iterations = num_iterations
         self.print_iter = print_iter
@@ -80,16 +93,33 @@ class NeuralStyle(nn.Module):
         if model_type == 'vgg19':
             from ..models.imagenet import VGG
             imagenet = VGG(model_file='maua/modelzoo/vgg19_imagenet.pth', layer_num=19, pooling=pooling,
-                           tv_weight=tv_weight, content_layers=content_layers, style_layers=style_layers,
-                           gpu=gpu, layer_depth_weighting=False)
+                           tv_weight=float(tv_weight), content_layers=content_layers, style_layers=style_layers,
+                           gpu=gpu, content_weight=float(content_weight), style_weight=float(style_weight),
+                           layer_depth_weighting=False, normalize_gradients=normalize_gradients)
         elif model_type == 'vgg16':
             from ..models.imagenet import VGG
             imagenet = VGG(layer_num=16, pooling=pooling, tv_weight=tv_weight, content_layers=content_layers,
-                           style_layers=style_layers, gpu=gpu, layer_depth_weighting=False)
+                           style_layers=style_layers, gpu=gpu, layer_depth_weighting=False,
+                           content_weight=float(content_weight), style_weight=float(style_weight),
+                           normalize_gradients=normalize_gradients)
         elif model_type == 'nin':
             from ..models.imagenet import NIN
-            imagenet = NIN(pooling=pooling, tv_weight=tv_weight, content_layers=content_layers,
-                           style_layers=style_layers, gpu=gpu, layer_depth_weighting=False)
+            imagenet = NIN(pooling=pooling, tv_weight=float(tv_weight), content_layers=content_layers,
+                           style_layers=style_layers, gpu=gpu, layer_depth_weighting=False,
+                           content_weight=float(content_weight), style_weight=float(style_weight),
+                           normalize_gradients=normalize_gradients)
+        elif model_type == 'prune':
+            from ..models.imagenet import ChannelPruning
+            imagenet = ChannelPruning(pooling=pooling, tv_weight=float(tv_weight), content_layers=content_layers,
+                           style_layers=style_layers, gpu=gpu, layer_depth_weighting=False,
+                           content_weight=float(content_weight), style_weight=float(style_weight),
+                           normalize_gradients=normalize_gradients)
+        elif model_type == 'nyud':
+            from ..models.imagenet import NyudFcn32s
+            imagenet = NyudFcn32s(pooling=pooling, tv_weight=float(tv_weight), content_layers=content_layers,
+                           style_layers=style_layers, gpu=gpu, layer_depth_weighting=False,
+                           content_weight=float(content_weight), style_weight=float(style_weight),
+                           normalize_gradients=normalize_gradients)
         else:
             print('Model type %s not supported'%(model_type))
 
@@ -102,11 +132,10 @@ class NeuralStyle(nn.Module):
         del imagenet
 
 
-    def handle_style_images(self, style_image_list):
+    def handle_style_images(self, style_image_list, style_size):
         style_images = []
         for image in style_image_list:
-            style_size = int(self.image_size * self.style_scale)
-            img = preprocess(image, style_size).type(self.dtype)
+            img = preprocess(image, int(style_size)).type(self.dtype)
             style_images.append(img)
 
         # Handle style blending weights for multiple style inputs
@@ -157,16 +186,16 @@ class NeuralStyle(nn.Module):
         if self.print_iter > 0 and num_calls[0] % self.print_iter == 0:
             print("Iteration " + str(num_calls[0]) + " / "+ str(self.num_iterations))
             for i, loss_module in enumerate(self.content_losses):
-                print("  Content " + str(i+1) + " loss: " + str(loss_module.loss.item() * self.content_weight))
+                print("  Content " + str(i+1) + " loss: " + str(loss_module.loss.item()))
             for i, loss_module in enumerate(self.style_losses):
-                print("  Style " + str(i+1) + " loss: " + str(loss_module.loss.item() * self.style_weight))
+                print("  Style " + str(i+1) + " loss: " + str(loss_module.loss.item()))
             print("  Total loss: " + str(loss.item()))
 
 
-    def maybe_save(self, num_calls, img, output):
+    def maybe_save(self, num_calls, img):
         if (self.save_iter > 0 and num_calls[0] % self.save_iter == 0) or \
             self.save_iter == 0 and num_calls[0] == self.num_iterations:
-            output_filename, file_extension = os.path.splitext(output)
+            output_filename, file_extension = os.path.splitext(self.output_image)
             if num_calls[0] == self.num_iterations:
                 filename = "%s%s"%(output_filename, file_extension)
             else:
@@ -178,45 +207,34 @@ class NeuralStyle(nn.Module):
             disp.save(str(filename))
 
 
-    def run(self, content, style, init=None, output=None):
-        """
-        run the neural style algorithm on supplied images
-        :param content: content image file path
-        :param style: style image file path
-        :param init: init image file path
-        :param output: output image file path
-        """
+    def run(self):
         if self.seed >= 0:
             th.manual_seed(self.seed)
             th.cuda.manual_seed(self.seed)
             th.backends.cudnn.deterministic=True
 
-        styles = style.split(',')
-        if output is None:
-            style_names = map(lambda s: os.path.splitext(os.path.basename(s))[0], styles)
-            content_name, _ = os.path.splitext(os.path.basename(content))
-            output = 'maua/output/%s_%s.png'%(content_name, "_".join(style_names))
+        styles, style_blend_weights = self.handle_style_images(self.style_images, self.image_size*self.style_scale)
 
-        self.style_images, style_blend_weights = self.handle_style_images(styles)
+        content = preprocess(self.content_image, self.image_size)
+        content = match_color(content, styles[0]).type(self.dtype)
 
-        self.content_image = preprocess(content, self.image_size)
-        self.content_image = match_color(self.content_image, self.style_images[0]).type(self.dtype)
-
-        if init is not None:
-            init_image = preprocess(init, self.image_size).type(self.dtype)
+        if self.init_image is not None:
+            init = preprocess(self.init_image, self.image_size)
         else:
-            _, C, H, W = self.content_image.size()
-            init_image = th.rand(C, H, W).mul(255).unsqueeze(0)
-        init_image = match_color(init_image, self.style_images[0]).type(self.dtype)
+            _, C, H, W = content.size()
+            init = th.rand(C, H, W).mul(255).unsqueeze(0)
+        init = match_color(init, styles[0]).type(self.dtype)
 
+        for i in self.style_losses:
+            i.mode = 'None'
         for i in self.content_losses:
             i.mode = 'capture'
         print("Capturing content targets")
-        self.net(self.content_image)
+        self.net(content)
         for i in self.content_losses:
             i.mode = 'None'
 
-        for i, image in enumerate(self.style_images):
+        for i, image in enumerate(styles):
             print("Capturing style target " + str(i+1))
             for j in self.style_losses:
                 j.mode = 'capture'
@@ -228,7 +246,7 @@ class NeuralStyle(nn.Module):
         for i in self.style_losses:
             i.mode = 'loss'
         
-        img = init_image.requires_grad_()
+        img = init.requires_grad_()
 
         num_calls = [0]
         def feval():
@@ -238,16 +256,16 @@ class NeuralStyle(nn.Module):
             loss = 0
 
             for mod in self.content_losses:
-                loss += mod.loss * self.content_weight
+                loss += mod.loss
             for mod in self.style_losses:
-                loss += mod.loss * self.style_weight
+                loss += mod.loss
             if self.tv_weight > 0:
                 for mod in self.tv_losses:
-                    loss += mod.loss * self.tv_weight
+                    loss += mod.loss
             loss.backward()
 
             self.maybe_print(num_calls, loss)
-            self.maybe_save(num_calls, img, output)
+            self.maybe_save(num_calls, img)
             return loss
 
         optimizer, loopVal = self.setup_optimizer(img)

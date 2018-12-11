@@ -11,7 +11,8 @@ class ImageNet(nn.Module):
     def __init__(self):
         super(ImageNet, self).__init__()
 
-    def insert_losses(self, content_layers, style_layers, tv_weight, pooling, layer_depth_weighting=False):
+    def insert_losses(self, content_layers, style_layers, tv_weight, pooling, normalize_gradients=False,
+                      layer_depth_weighting=False, content_weight=1.0, style_weight=1.0):
         content_layers = content_layers.split(',')
         style_layers = style_layers.split(',')
 
@@ -22,7 +23,7 @@ class ImageNet(nn.Module):
         self.net = nn.Sequential()
         c, r, p, n = 0, 0, 0, 0
         if tv_weight > 0:
-            tv_mod = TVLoss()
+            tv_mod = TVLoss(tv_weight)
             self.net.add_module('tv_loss', tv_mod)
             self.tv_losses.append(tv_mod)
 
@@ -34,13 +35,15 @@ class ImageNet(nn.Module):
 
                     if self.layer_list['C'][c] in content_layers:
                         print("Setting up content layer " + str(i) + ": " + str(self.layer_list['C'][c]))
-                        loss_module = ContentLoss(strength=2**(c-5) if layer_depth_weighting else 1)
+                        loss_module = ContentLoss(strength=content_weight*(2**(c-5) if layer_depth_weighting else content_weight),
+                                                  normalize=normalize_gradients)
                         self.net.add_module('c_'+self.layer_list['C'][c], loss_module)
                         self.content_losses.append(loss_module)
 
                     if self.layer_list['C'][c] in style_layers:
                         print("Setting up style layer " + str(i) + ": " + str(self.layer_list['C'][c]))
-                        loss_module = StyleLoss(strength=2**(c-5) if layer_depth_weighting else 1)
+                        loss_module = StyleLoss(strength=style_weight*(2**(c-5) if layer_depth_weighting else style_weight),
+                                                  normalize=normalize_gradients)
                         self.net.add_module('s_'+self.layer_list['C'][c], loss_module)
                         self.style_losses.append(loss_module)
                     c+=1
@@ -51,32 +54,35 @@ class ImageNet(nn.Module):
 
                     if self.layer_list['R'][r] in content_layers:
                         print("Setting up content layer " + str(i) + ": " + str(self.layer_list['R'][r]))
-                        loss_module = ContentLoss(strength=2**(r-5) if layer_depth_weighting else 1)
+                        loss_module = ContentLoss(strength=content_weight*(2**(c-5) if layer_depth_weighting else content_weight),
+                                                  normalize=normalize_gradients)
                         self.net.add_module('c_'+self.layer_list['R'][r], loss_module)
                         self.content_losses.append(loss_module)
                         next_content_idx += 1
 
                     if self.layer_list['R'][r] in style_layers:
                         print("Setting up style layer " + str(i) + ": " + str(self.layer_list['R'][r]))
-                        loss_module = StyleLoss(strength=2**(r-5) if layer_depth_weighting else 1)
+                        loss_module = StyleLoss(strength=style_weight*(2**(c-5) if layer_depth_weighting else style_weight),
+                                                normalize=normalize_gradients)
                         self.net.add_module('s_'+self.layer_list['R'][r], loss_module)
                         self.style_losses.append(loss_module)
                         next_style_idx += 1
                     r+=1
 
-                if isinstance(layer, nn.MaxPool2d):
+                if isinstance(layer, nn.MaxPool2d) or isinstance(layer, nn.AvgPool2d):
                     if pooling == 'avg':
                         self.net.add_module(str(n), nn.AvgPool2d((3, 3),(2, 2),(0, 0), ceil_mode=True))
-                    else:
-                        self.net.add_module(str(n), layer)
+                    if pooling == 'max':
+                        self.net.add_module(str(n), nn.AvgPool2d((3, 3),(2, 2),(0, 0), ceil_mode=True))
                     n+=1
                     p+=1
 
 
-# TODO readd build_sequential to clean up this double checkpoint download?
+# TODO readd build_sequential to clean up this double checkpoint download
 class VGG(ImageNet):
     def __init__(self, model_file=None, layer_num=19, pooling='max', gpu=-1, tv_weight=0,
-                 content_layers="", style_layers="", num_classes=1000, layer_depth_weighting=False):
+                 content_layers="", style_layers="", num_classes=1000, layer_depth_weighting=False,
+                 content_weight=1.0, style_weight=1.0, normalize_gradients=False):
         super(VGG, self).__init__()
 
         if layer_num == 19:
@@ -107,7 +113,9 @@ class VGG(ImageNet):
             print("vgg%s not available, options [vgg19, vgg16]"%(layer_num))
 
         if not (tv_weight==0 and content_layers=="" and style_layers==""):
-            self.insert_losses(content_layers, style_layers, tv_weight, pooling, layer_depth_weighting)
+            self.insert_losses(content_layers=content_layers, style_layers=style_layers, tv_weight=tv_weight,
+                               content_weight=content_weight, style_weight=style_weight, pooling=pooling,
+                               normalize_gradients=normalize_gradients, layer_depth_weighting=layer_depth_weighting)
 
         if model_file is not None:
             caffe_net = torch.load(model_file)
@@ -122,7 +130,8 @@ class VGG(ImageNet):
 # TODO check if this works in neural style / pix2pix without utils.preprocess() input first
 class NIN(ImageNet):
     def __init__(self, model_file='maua/modelzoo/nin_imagenet.pth', pooling='max', gpu=-1,
-                 tv_weight=0, content_layers="", style_layers="", layer_depth_weighting=False):
+                 tv_weight=0, content_layers="", style_layers="", layer_depth_weighting=False,
+                 content_weight=1.0, style_weight=1.0, normalize_gradients=False):
         super(NIN, self).__init__()
 
         self.layer_list = {
@@ -167,8 +176,9 @@ class NIN(ImageNet):
             nn.Conv2d(1024,1000,(1, 1)),
             nn.ReLU(inplace=True),
             nn.AvgPool2d((6, 6),(1, 1),(0, 0),ceil_mode=True),
-            nn.Softmax(),
+            nn.Softmax()
         )
+
         if not os.path.isfile(model_file):
             print("Model file not found. Downloading...")
             urllib.request.urlretrieve("https://raw.githubusercontent.com/ProGamerGov/pytorch-nin/master/nin_imagenet.pth", model_file)
@@ -176,7 +186,143 @@ class NIN(ImageNet):
         print("Successfully loaded " + str(model_file))
 
         if not (tv_weight==0 and content_layers=="" and style_layers==""):
-            self.insert_losses(content_layers, style_layers, tv_weight, pooling, layer_depth_weighting)
+            self.insert_losses(content_layers=content_layers, style_layers=style_layers, tv_weight=tv_weight,
+                               content_weight=content_weight, style_weight=style_weight, pooling=pooling,
+                               normalize_gradients=normalize_gradients, layer_depth_weighting=layer_depth_weighting)
 
         if gpu > -1:
             self.net = self.net.cuda()
+
+
+class ChannelPruning(ImageNet):
+    def __init__(self, model_file='maua/modelzoo/channel_pruning.pth', pooling='max', gpu=-1,
+                 tv_weight=0, content_layers="", style_layers="", layer_depth_weighting=False,
+                 content_weight=1.0, style_weight=1.0, normalize_gradients=False):
+        super(ChannelPruning, self).__init__()
+
+        self.layer_list = {
+            'C': ['conv1', 'conv2', 'conv3', 'conv4', 'conv5', 'conv6', 'conv7', 'conv8', 'conv9', 'conv10', 'conv11', 'conv12', 'conv13'],
+            'R': ['relu0', 'relu1', 'relu2', 'relu3', 'relu5', 'relu6', 'relu7', 'relu8', 'relu9', 'relu10', 'relu11', 'relu12', 'relu13'],
+            'P': ['pool1', 'pool2', 'pool3', 'pool4', 'pool5']
+        }
+
+        self.features = nn.Sequential(
+            nn.Conv2d(3,24,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(24,22,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
+            nn.Conv2d(22,41,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(41,51,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
+            nn.Conv2d(51,108,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(108,89,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(89,111,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
+            nn.Conv2d(111,184,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(184,276,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(276,228,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
+            nn.Conv2d(228,512,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
+            nn.Softmax()
+        )
+
+        if not os.path.isfile(model_file):
+            print("Channel Pruning model file not found.")
+            exit()
+        self.features.load_state_dict(torch.load(model_file), False)
+        print("Successfully loaded " + str(model_file))
+
+        if not (tv_weight==0 and content_layers=="" and style_layers==""):
+            self.insert_losses(content_layers=content_layers, style_layers=style_layers, tv_weight=tv_weight,
+                               content_weight=content_weight, style_weight=style_weight, pooling=pooling,
+                               normalize_gradients=normalize_gradients, layer_depth_weighting=layer_depth_weighting)
+
+        if gpu > -1:
+            self.net = self.net.cuda()
+
+        print(self.net)
+
+
+class NyudFcn32s(ImageNet):
+    def __init__(self, model_file='maua/modelzoo/nyud_fcn32s.pth', pooling='max', gpu=-1,
+                 tv_weight=0, content_layers="", style_layers="", layer_depth_weighting=False,
+                 content_weight=1.0, style_weight=1.0, normalize_gradients=False):
+        super(NyudFcn32s, self).__init__()
+
+        self.layer_list = {
+            'C': ['conv1', 'conv2', 'conv3', 'conv4', 'conv5', 'conv6', 'conv7', 'conv8', 'conv9', 'conv10', 'conv11', 'conv12', 'conv13', 'conv14', 'conv15', 'conv16'],
+            'R': ['relu0', 'relu1', 'relu2', 'relu3', 'relu5', 'relu6', 'relu7', 'relu8', 'relu9', 'relu10', 'relu11', 'relu12', 'relu13', 'relu14', 'relu15', 'relu16'],
+            'P': ['pool1', 'pool2', 'pool3', 'pool4', 'pool5']
+        }
+
+        self.features = nn.Sequential(
+            nn.Conv2d(3,64,(3, 3),(1, 1),(100, 100)),
+            nn.ReLU(),
+            nn.Conv2d(64,64,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
+            nn.Conv2d(64,128,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(128,128,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
+            nn.Conv2d(128,256,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(256,256,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(256,256,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
+            nn.Conv2d(256,512,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
+            nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(512,512,(3, 3),(1, 1),(1, 1)),
+            nn.ReLU(),
+            nn.MaxPool2d((2, 2),(2, 2),(0, 0),ceil_mode=True),
+            nn.Conv2d(512,4096,(7, 7)),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Conv2d(4096,4096,(1, 1)),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Conv2d(4096,40,(1, 1))
+        )
+
+        if not os.path.isfile(model_file):
+            print("Nyud-Fcn32s model file not found.")
+            exit()
+        self.features.load_state_dict(torch.load(model_file))
+        print("Successfully loaded " + str(model_file))
+
+        if not (tv_weight==0 and content_layers=="" and style_layers==""):
+            self.insert_losses(content_layers=content_layers, style_layers=style_layers, tv_weight=tv_weight,
+                               content_weight=content_weight, style_weight=style_weight, pooling=pooling,
+                               normalize_gradients=normalize_gradients, layer_depth_weighting=layer_depth_weighting)
+
+        if gpu > -1:
+            self.net = self.net.cuda()
+
+        print(self.net)

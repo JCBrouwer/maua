@@ -1,24 +1,40 @@
 import torch as th
+import torch.autograd
 import numpy as np
+
+
+class NormalizeGradients(th.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, input):
+        return input
+
+    @staticmethod
+    def backward(ctx, grad_out):
+        return grad_out.div(th.norm(grad_out, 1) + 1e-12)
 
 
 class ContentLoss(th.nn.Module):
 
-    def __init__(self, strength=1):
+    def __init__(self, strength=1.0, normalize=False):
         super(ContentLoss, self).__init__()
         self.crit = th.nn.MSELoss()
         self.mode = 'None'
         self.strength = strength
+        self.normalize = normalize
 
     def forward(self, input):
         if self.mode == 'capture':
             self.target = input.detach()
         elif self.mode == 'loss':
             self.loss = self.crit(input, self.target) * self.strength
+        if self.normalize:
+            input = NormalizeGradients.apply(input)
         return input
 
 
 class GramMatrix(th.nn.Module):
+
     def forward(self, input):
         B, C, H, W = input.size()
         x_flat = input.view(C, H * W)
@@ -27,7 +43,7 @@ class GramMatrix(th.nn.Module):
 
 class StyleLoss(th.nn.Module):
 
-    def __init__(self, strength=1):
+    def __init__(self, strength=1.0, normalize=False):
         super(StyleLoss, self).__init__()
         self.target = th.Tensor()
         self.gram = GramMatrix()
@@ -35,6 +51,7 @@ class StyleLoss(th.nn.Module):
         self.mode = 'None'
         self.blend_weight = None
         self.strength = strength
+        self.normalize = normalize
 
     def forward(self, input):
         self.G = self.gram(input)
@@ -48,18 +65,21 @@ class StyleLoss(th.nn.Module):
                 self.target = self.target.add(self.blend_weight, self.G.detach())
         elif self.mode == 'loss':
             self.loss = self.crit(self.G, self.target) * self.strength
+        if self.normalize:
+            input = NormalizeGradients.apply(input)
         return input
 
 
 class TVLoss(th.nn.Module):
 
-    def __init__(self):
+    def __init__(self, strength=1.0):
         super(TVLoss, self).__init__()
+        self.strength = strength
 
     def forward(self, input):
         self.x_diff = input[:,:,1:,:] - input[:,:,:-1,:]
         self.y_diff = input[:,:,:,1:] - input[:,:,:,:-1]
-        self.loss = th.sum(th.abs(self.x_diff)) + th.sum(th.abs(self.y_diff))
+        self.loss = (th.sum(th.abs(self.x_diff)) + th.sum(th.abs(self.y_diff))) * self.strength
         return input
 
 
