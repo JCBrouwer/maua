@@ -1,4 +1,5 @@
-# Maua v0.1
+# Maua
+## v0.1.1
 
 Maua is a framework that allows for easy training of and interoperability between multiple state of the art image processing networks. Maua provides a modular object oriented API that allows uses ranging from piecing together low level components into a new architecture to training a GAN with a single command.
 
@@ -49,6 +50,9 @@ The implementation of pix2pixHD is still a work in progress. Expect an improveme
 
 From left to right: the content image, style image, output using NeuralStyle, and MultiscaleStyle.
 
+Also included is a script, voltaStyle.py, that uses progressively smaller ImageNet classifiers to achieve up to 36 megapixel style transfer images (6000x6000 px) on a graphics card with 11 GB VRAM.
+
+Note that using NeuralStyle without specifying a model_file will download the respective model to your modelzoo.
 
 ## Roadmap
 
