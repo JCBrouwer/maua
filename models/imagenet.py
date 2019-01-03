@@ -6,7 +6,6 @@ from ..networks.losses import ContentLoss, StyleLoss, TVLoss
 
 # TODO make this an abstract factory
 # TODO allow multiple TVLosses at different layers
-# TODO readd build_sequential to clean up this double checkpoint download
 
 class ImageNet(nn.Module):
     def __init__(self):
@@ -80,12 +79,12 @@ class ImageNet(nn.Module):
 
 
 class VGG(ImageNet):
-    def __init__(self, model_file='maua/modelzoo/vgg%s_imagenet.pth', layer_num=19, pooling='max', gpu=-1, tv_weight=0,
+    def __init__(self, model_file=None, layer_num=19, pooling='max', gpu=-1, tv_weight=0,
                  content_layers="", style_layers="", num_classes=1000, layer_depth_weighting=False,
                  content_weight=1.0, style_weight=1.0, normalize_gradients=False):
         super(VGG, self).__init__()
 
-        model_file = model_file % layer_num
+        model_file = "maua/modelzoo/vgg%s_imagenet.pth"%layer_num if model_file is None else model_file
         if layer_num == 19:
             if not os.path.exists(model_file):
                 sd = load_url("https://s3-us-west-2.amazonaws.com/jcjohns-models/vgg19-d01eb7cb.pth")
