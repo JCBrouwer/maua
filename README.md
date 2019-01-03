@@ -54,6 +54,9 @@ Also included is a script, voltaStyle.py, that uses progressively smaller ImageN
 
 Note that using NeuralStyle without specifying a model_file will download the respective model to your modelzoo.
 
+Normalizing gradients is not yet fully functioning, this feature should be left False for the time being.
+
+
 ## Roadmap
 
 Below is a list of planned features and improvements for v1.0:
