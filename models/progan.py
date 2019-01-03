@@ -4,6 +4,7 @@ import numpy as np
 import torch as th
 import torchvision as tv
 from torchvision.utils import save_image
+import torchvision.transforms as tn
 from torch.nn.functional import interpolate
 from .base import BaseModel
 from ..dataloaders.base import BaseDataLoader
@@ -16,7 +17,7 @@ class ProGAN(BaseModel):
 
     def __init__(self, depth=7, latent_size=256, num_channels=3, learning_rate=1e-3, beta_1=0,
                  beta_2=0.99, eps=1e-8, drift=0.001, n_critic=1, use_eql=True, loss="wgan-gp",
-                 use_ema=True, ema_decay=0.999, **kwargs):
+                 use_ema=True, ema_decay=0.999, checkpoint=None, **kwargs):
         """
         constructor for the class ProGAN, extends BaseModel
         :param depth: depth of the GAN, 2^depth is the final size of generated images
@@ -79,6 +80,11 @@ class ProGAN(BaseModel):
             # initialize the G_shadow weights equal to the weights of G
             self.update_average(self.G_shadow, self.G, beta=0)
 
+        if checkpoint is not None:
+            self.model_names = ['G']
+            self.load_networks(checkpoint)
+            self.set_requires_grad(self.G, requires_grad=False)
+
 
     def setup_loss(self, loss):
         from ..networks.losses import GANLoss, WGAN_GP, LSGAN, LSGAN_SIGMOID
@@ -140,14 +146,13 @@ class ProGAN(BaseModel):
         from torch.nn import AvgPool2d
 
         # downsample the real_batch for the given depth
-        down_sample_factor = int(np.power(2, self.depth - depth - 1))
-        prior_downsample_factor = max(int(np.power(2, self.depth - depth)), 0)
+        down_sample_factor = 1#int(np.power(2, self.depth - depth - 1)) if not callable(self.dataloader.transforms) else 2
+        prior_downsample_factor = 2#max(int(np.power(2, self.depth - depth)), 0) if not callable(self.dataloader.transforms) else 1
 
         ds_real_samples = AvgPool2d(down_sample_factor)(real_batch)
 
         if depth > 0:
-            prior_ds_real_samples = interpolate(AvgPool2d(prior_downsample_factor)(real_batch),
-                                                scale_factor=2)
+            prior_ds_real_samples = interpolate(AvgPool2d(prior_downsample_factor)(real_batch), scale_factor=2)
         else:
             prior_ds_real_samples = ds_real_samples
 
@@ -238,11 +243,15 @@ class ProGAN(BaseModel):
 
         dataset_size = len(dataloader)
         print('# training images = %d' % dataset_size)
-
+        
         for depth in range(start_depth, self.depth):
             current_res = 2**(depth + 2)
             print("Current resolution: %d x %d" % (current_res, current_res))
 
+            if callable(dataloader.transforms):
+                from ..dataloaders import ImageFolder
+                new_transforms = dataloader.transforms(current_res)
+                dataloader.dataset = ImageFolder(data_path=dataloader.data_path+"/%s"%current_res, transform=tn.ToTensor())
             dataloader.set_batch_size(batches_dict[current_res])
             total_batches = dataloader.batches()
 
@@ -284,7 +293,7 @@ class ProGAN(BaseModel):
                         with th.no_grad():
                             self.create_grid(
                                 samples=self.G(fixed_input, depth, alpha),
-                                scale_factor=int(np.power(2, self.depth - depth - 1)),
+                                scale_factor=int(np.power(2, self.depth - depth - 2)),
                                 img_file=gen_img_file,
                             )
 
@@ -323,3 +332,4 @@ class ProGAN(BaseModel):
 
         # save the images:
         save_image(samples, img_file, nrow=int(np.sqrt(len(samples))+1))
+

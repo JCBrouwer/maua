@@ -49,19 +49,21 @@ class BaseModel(th.nn.Module):
     # load network from file
     def load_networks(self, epoch):
         for model_name in self.model_names:
-            if isinstance(model_name, str):
+            if isinstance(epoch, str):
+                load_filename = epoch
+            else:
                 load_filename = '%s_%s_net_%s.pth' % (self.name, epoch, model_name)
-                load_path = os.path.join(self.save_dir, load_filename)
-                net = getattr(self, model_name)
-                if isinstance(net, th.nn.DataParallel):
-                    net = net.module
-                print('loading the model from %s' % load_path)
-                state_dict = th.load(load_path, map_location=self.device)
-                if hasattr(state_dict, '_metadata'):
-                    del state_dict._metadata
-                if state_dict.keys() != net.state_dict().keys():
-                    print('checkpoint state dictionaries are not identical, some parameters may not be initialized correctly')
-                net.load_state_dict(state_dict, strict=False)
+            load_path = os.path.join(self.save_dir, load_filename)
+            net = getattr(self, model_name)
+            if isinstance(net, th.nn.DataParallel):
+                net = net.module
+            print('loading the model from %s' % load_path)
+            state_dict = th.load(load_path, map_location=self.device)
+            if hasattr(state_dict, '_metadata'):
+                del state_dict._metadata
+            if state_dict.keys() != net.state_dict().keys():
+                print('checkpoint state dictionaries are not identical, some parameters may not be initialized correctly')
+            net.load_state_dict(state_dict, strict=False)
 
 
     # print network information
