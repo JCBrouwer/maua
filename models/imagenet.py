@@ -6,7 +6,6 @@ from ..networks.losses import ContentLoss, StyleLoss, TVLoss
 
 # TODO make this an abstract factory
 # TODO allow multiple TVLosses at different layers
-# TODO readd build_sequential to clean up this double checkpoint download
 
 class ImageNet(nn.Module):
     def __init__(self):
@@ -85,30 +84,29 @@ class VGG(ImageNet):
                  content_weight=1.0, style_weight=1.0, normalize_gradients=False):
         super(VGG, self).__init__()
 
+        model_file = "maua/modelzoo/vgg%s_imagenet.pth"%layer_num if model_file is None else model_file
         if layer_num == 19:
-            if model_file is not None:
-                if not os.path.exists(model_file):
-                    sd = load_url("https://s3-us-west-2.amazonaws.com/jcjohns-models/vgg19-d01eb7cb.pth")
-                    torch.save(sd, model_file)
+            if not os.path.exists(model_file):
+                sd = load_url("https://s3-us-west-2.amazonaws.com/jcjohns-models/vgg19-d01eb7cb.pth")
+                torch.save(sd, model_file)
             from torchvision.models import vgg19
-            self.features = vgg19(pretrained=True).features
+            self.features = vgg19().features
             self.layer_list = {
                 'C': ['conv1_1', 'conv1_2', 'conv2_1', 'conv2_2', 'conv3_1', 'conv3_2', 'conv3_3', 'conv3_4', 'conv4_1', 'conv4_2', 'conv4_3', 'conv4_4', 'conv5_1', 'conv5_2', 'conv5_3', 'conv5_4'],
                 'R': ['relu1_1', 'relu1_2', 'relu2_1', 'relu2_2', 'relu3_1', 'relu3_2', 'relu3_3', 'relu3_4', 'relu4_1', 'relu4_2', 'relu4_3', 'relu4_4', 'relu5_1', 'relu5_2', 'relu5_3', 'relu5_4'],
                 'P': ['pool1', 'pool2', 'pool3', 'pool4', 'pool5'],
             }
         elif layer_num == 16:
-            if model_file is not None:
-                if not os.path.exists(model_file):
-                    sd = load_url("https://s3-us-west-2.amazonaws.com/jcjohns-models/vgg16-00b39a1b.pth")
-                    torch.save(sd, model_file)
+            if not os.path.exists(model_file):
+                sd = load_url("https://s3-us-west-2.amazonaws.com/jcjohns-models/vgg16-00b39a1b.pth")
+                torch.save(sd, model_file)
             from torchvision.models import vgg16
             self.layer_list = {
                 'C': ['conv1_1', 'conv1_2', 'conv2_1', 'conv2_2', 'conv3_1', 'conv3_2', 'conv3_3', 'conv4_1', 'conv4_2', 'conv4_3', 'conv5_1', 'conv5_2', 'conv5_3'],
                 'R': ['relu1_1', 'relu1_2', 'relu2_1', 'relu2_2', 'relu3_1', 'relu3_2', 'relu3_3', 'relu4_1', 'relu4_2', 'relu4_3', 'relu5_1', 'relu5_2', 'relu5_3'],
                 'P': ['pool1', 'pool2', 'pool3', 'pool4', 'pool5'],
             }
-            self.features = vgg16(pretrained=True).features
+            self.features = vgg16().features
         else:
             print("vgg%s not available, options [vgg19, vgg16]"%(layer_num))
 
@@ -178,8 +176,8 @@ class NIN(ImageNet):
         )
 
         if not os.path.isfile(model_file):
-            print("Model file not found. Downloading...")
-            urllib.request.urlretrieve("https://raw.githubusercontent.com/ProGamerGov/pytorch-nin/master/nin_imagenet.pth", model_file)
+            sd = load_url("https://raw.githubusercontent.com/ProGamerGov/pytorch-nin/master/nin_imagenet.pth")
+            torch.save(sd, model_file)
         self.load_state_dict(torch.load(model_file), False)
         print("Successfully loaded " + str(model_file))
 
@@ -240,8 +238,8 @@ class ChannelPruning(ImageNet):
         )
 
         if not os.path.isfile(model_file):
-            print("Channel Pruning model file not found.")
-            exit()
+            sd = load_url("https://dl.dropboxusercontent.com/s/nlm3z0kgxt1ccco/channel_pruning.pth?dl=1")
+            torch.save(sd, model_file)
         self.features.load_state_dict(torch.load(model_file), False)
         print("Successfully loaded " + str(model_file))
 
@@ -309,8 +307,8 @@ class NyudFcn32s(ImageNet):
         )
 
         if not os.path.isfile(model_file):
-            print("Nyud-Fcn32s model file not found.")
-            exit()
+            sd = load_url("https://dl.dropboxusercontent.com/s/xfxatcsmbvf4dwk/nyud_fcn32s.pth?dl=1")
+            torch.save(sd, model_file)
         self.features.load_state_dict(torch.load(model_file))
         print("Successfully loaded " + str(model_file))
 
