@@ -7,9 +7,9 @@ content_name, _ = os.path.splitext(os.path.basename(content))
 style = sys.argv[2]
 style_names = list(map(lambda s: os.path.splitext(os.path.basename(s))[0], style.split(',')))
 
-output = '../Pictures/neurout/2018/december/%s_%s.png'%(content_name, "_".join(style_names))
+output = 'maua/output/%s_%s.png'%(content_name, "_".join(style_names))
 
-style_factor = 0.25
+style_factor = 1
 
 ns = NeuralStyle(
     content_image = content,
@@ -102,7 +102,7 @@ img = ns.run(
 
 ns.run(
     init_image = img,
-    image_size = 6000,
-    style_layers = 'relu1_1,relu2_1,relu3_1',
+    image_size = 5300,
+    style_layers = 'relu1_1,relu2_1',
     output_image = output
 )

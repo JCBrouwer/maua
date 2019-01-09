@@ -50,7 +50,7 @@ The implementation of pix2pixHD is still a work in progress. Expect an improveme
 
 From left to right: the content image, style image, output using NeuralStyle, and MultiscaleStyle.
 
-Also included is a script, voltaStyle.py, that uses progressively smaller ImageNet classifiers to achieve up to 36 megapixel style transfer images (6000x6000 px) on a graphics card with 11 GB VRAM.
+Also included is a script, voltaStyle.py, that uses progressively smaller ImageNet classifiers to achieve up to 28 megapixel style transfer images (5300x5300 px) on a graphics card with 11 GB VRAM.
 
 Note that using NeuralStyle without specifying a model_file will download the respective model to your modelzoo.
 
