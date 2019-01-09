@@ -236,9 +236,7 @@ class ProGAN(BaseModel):
         # create dataloader
         if dataloader is None:
             transforms = tv.transforms.Compose([tv.transforms.Resize(2**(self.depth + 1)),
-                                                tv.transforms.ToTensor()])#,
-                                                # tv.transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                                #                         std=[0.229, 0.224, 0.225])])
+                                                tv.transforms.ToTensor()])
             dataloader = BaseDataLoader(data_path, transforms=transforms, batch_size=1)
 
         dataset_size = len(dataloader)
@@ -252,6 +250,7 @@ class ProGAN(BaseModel):
                 from ..dataloaders import ImageFolder
                 new_transforms = dataloader.transforms(current_res)
                 dataloader.dataset = ImageFolder(data_path=dataloader.data_path+"/%s"%current_res, transform=tn.ToTensor())
+                
             dataloader.set_batch_size(batches_dict[current_res])
             total_batches = dataloader.batches()
 
