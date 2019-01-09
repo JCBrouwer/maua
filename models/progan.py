@@ -30,10 +30,11 @@ class ProGAN(BaseModel):
         :param use_eql: whether to use equalized learning rate
         :param loss: the loss function to be used
                      Can either be a string =>
-                          ["wgan-gp", "wgan", "lsgan", "lsgan-with-sigmoid"]
+                          ["wgan-gp", "wgan", "lsgan", "lsgan-sig", "hinge", "rel-avg", "r1-reg"]
                      Or an instance of GANLoss
         :param use_ema: boolean for whether to use exponential moving averages
         :param ema_decay: value of mu for ema
+        :param checkpoint: generator checkpoint to load for inference
         :param learning_rate: base learning rate for Adam
         :param beta_1: beta_1 parameter for Adam
         :param beta_2: beta_2 parameter for Adam
@@ -87,8 +88,9 @@ class ProGAN(BaseModel):
 
 
     def setup_loss(self, loss):
-        from ..networks.losses import GANLoss, WGAN_GP, LSGAN, LSGAN_SIGMOID
         if isinstance(loss, str):
+            from ..networks.losses import GANLoss, WGAN_GP, LSGAN, LSGAN_SIGMOID, HingeLoss,
+                                          RelativisticAverageHinge, R1Regularized
             loss = loss.lower()  # lowercase the string
             if loss == "wgan":
                 loss = WGAN_GP(self.device, self.D, self.drift, use_gp=False)
@@ -97,9 +99,15 @@ class ProGAN(BaseModel):
             elif loss == "wgan-gp":
                 loss = WGAN_GP(self.device, self.D, self.drift, use_gp=True)
             elif loss == "lsgan":
-                loss = LSGAN(self.device, self.D)
-            elif loss == "lsgan-with-sigmoid":
-                loss = LSGAN_SIGMOID(self.device, self.D)
+                loss = LSGAN(self.D)
+            elif loss == "lsgan-sig":
+                loss = LSGAN_SIGMOID(self.D)
+            elif loss == "hinge":
+                loss = HingeLoss(self.D)
+            elif loss == "rel-avg":
+                loss = RelativisticAverageHingeLoss(self.D)
+            elif loss == "r1-reg":
+                loss = R1Regularized(self.D)
             else:
                 raise ValueError("Unknown loss function requested")
         elif not isinstance(loss, GANLoss):
@@ -138,16 +146,41 @@ class ProGAN(BaseModel):
         toggle_grad(model_src, True)
 
 
+    def generate_prescaled_dataset(self, dataloader, sizes):
+        print("Generating prescaled dataset...")
+        self.prescaled_data = True
+        data_path = 'maua/datasets/%s_prescaled'%self.name
+        if not len(dataloader)*len(sizes) == len(BaseDataLoader(data_path,tn.ToTensor())):
+            # create a copy of the dataset on disk for each size
+            from pathos.multiprocessing import ProcessingPool as Pool
+            pool = Pool(len(sizes))
+
+            def prescale_dataset(size):
+                os.makedirs(data_path+"/%s"%size, exist_ok=True)
+                transforms = tn.Compose([dataloader.transforms, tn.Resize(size), tn.ToTensor()])
+                t_data = BaseDataLoader(dataloader.data_path, transforms=transforms, batch_size=1)
+                for i, sample in enumerate(t_data, 1):
+                    sample = th.clamp(sample, min=0, max=1)
+                    save_image(sample, data_path+"/%s/%s.png"%(size,i))
+                return len(os.listdir(data_path+"/%s"%size))
+
+            results = pool.map(prescale_dataset, sizes)
+            pool.close()
+            pool.join()
+            assert sum(results) == len(dataloader)*len(sizes)
+        dataloader.data_path = data_path
+
+
     def forward(self, real_A):
         return self.G(real_A, self.depth-1, alpha=1)
 
 
     def optimize_D(self, noise, real_batch, depth, alpha):
         from torch.nn import AvgPool2d
-
+        from ..networks.losses import R1Regularized
         # downsample the real_batch for the given depth
-        down_sample_factor = 1#int(np.power(2, self.depth - depth - 1)) if not callable(self.dataloader.transforms) else 2
-        prior_downsample_factor = 2#max(int(np.power(2, self.depth - depth)), 0) if not callable(self.dataloader.transforms) else 1
+        down_sample_factor = int(np.power(2, self.depth - depth - 1)) if not self.prescaled_data else 1
+        prior_downsample_factor = max(int(np.power(2, self.depth - depth)), 0) if not self.prescaled_data else 2
 
         ds_real_samples = AvgPool2d(down_sample_factor)(real_batch)
 
@@ -168,7 +201,14 @@ class ProGAN(BaseModel):
 
             # optimize discriminator
             self.D_optim.zero_grad()
-            loss.backward()
+
+            # TODO add WGAN regularization and self.regularize param
+            if type(self.loss, R1Regularized):
+                loss.backward(retain_graph=True)
+                self.loss.reg.backward()
+            else:
+                loss.backward()
+
             self.D_optim.step()
 
             loss_val += loss.item()
@@ -180,7 +220,6 @@ class ProGAN(BaseModel):
         # generate fake samples:
         fake_samples = self.G(noise, depth, alpha)
 
-        # TODO: Change this implementation for making it compatible for relativisticGAN
         loss = self.loss.loss_G(None, fake_samples, depth=depth, alpha=alpha)
 
         # optimize the generator
@@ -197,10 +236,10 @@ class ProGAN(BaseModel):
 
 
     def train(self, continue_train=False, data_path='maua/datasets/default_progan',
-        dataloader=None, start_epoch=1, fade_in=0.5, save_freq=10, log_freq=5,
+        dataloader=None, start_epoch=1, start_depth=1, fade_in=0.5, save_freq=10, log_freq=5,
         epochs_dict={8: 50, 16: 50, 32: 75, 64: 75, 128: 100, 256: 100, 512: 150, 1024: 150},
         batches_dict={8: 512, 16: 128, 32: 48, 64: 24, 128: 12, 256: 6, 512: 3, 1024: 1},
-        learning_rates_dict={256: 5e-4, 512: 2.5e-4, 1024: 1e-4}):
+        learning_rates_dict={256: 5e-4, 512: 2.5e-4, 1024: 1e-4}, prescaled_data=True):
         """
         Training function for ProGAN object
         :param continue_train: whether to continue training or not
@@ -214,10 +253,12 @@ class ProGAN(BaseModel):
         :param epochs_dict: dictionary of number of epochs to train per resolution
         :param batches_dict: dictionary of batch sizes per resolution
         :param learning_rates_dict: dictionary of learning rates per resolution (defaults to self.learning_rate)
+        :param prescaled_data: whether dataset should be pre-resized to each size on disk.
+                               trades large performance boost for smaller sizes for more disk space.
         """
         self.model_names = ["G", "D"]
         os.makedirs(os.path.join(self.save_dir, "images"), exist_ok=True)
-        start_depth = start_epoch = epoch = 1
+        start_epoch = epoch = 1
         num_epochs = sum(list(epochs_dict.values())[:self.depth])
 
         if continue_train:
@@ -226,31 +267,29 @@ class ProGAN(BaseModel):
             epoch = start_epoch
             start_epoch -= sum(list(epochs_dict.values())[:start_depth-1])
 
-        print("Starting training on "+str(self.device))
-        # create a global time counter
-        global_time = time.time()
-
         # create fixed_input for debugging
         fixed_input = th.randn(12, self.latent_size).to(self.device)
 
         # create dataloader
         if dataloader is None:
-            transforms = tv.transforms.Compose([tv.transforms.Resize(2**(self.depth + 1)),
-                                                tv.transforms.ToTensor()])
+            transforms = tv.transforms.Compose([tn.Resize(2**(self.depth + 1)),
+                                                tn.ToTensor()])
             dataloader = BaseDataLoader(data_path, transforms=transforms, batch_size=1)
+        if prescaled_data: self.generate_prescaled_dataset(dataloader, sizes=epochs_dict.keys())
 
         dataset_size = len(dataloader)
         print('# training images = %d' % dataset_size)
-        
+
+        print("Starting training on "+str(self.device))
+        # create a global time counter
+        global_time = time.time()
         for depth in range(start_depth, self.depth):
             current_res = 2**(depth + 2)
             print("Current resolution: %d x %d" % (current_res, current_res))
 
-            if callable(dataloader.transforms):
+            if self.prescaled_data:
                 from ..dataloaders import ImageFolder
-                new_transforms = dataloader.transforms(current_res)
                 dataloader.dataset = ImageFolder(data_path=dataloader.data_path+"/%s"%current_res, transform=tn.ToTensor())
-                
             dataloader.set_batch_size(batches_dict[current_res])
             total_batches = dataloader.batches()
 
@@ -268,14 +307,9 @@ class ProGAN(BaseModel):
                 # iterate over the dataset in batches:
                 for i, batch in enumerate(dataloader, 1):
                     images = batch.to(self.device)
-
-                    # generate some random noise:
                     noise = th.randn(images.shape[0], self.latent_size).to(self.device)
 
-                    # optimize discriminator:
                     loss_D += self.optimize_D(noise, images, depth, alpha)
-
-                    # optimize generator:
                     loss_G += self.optimize_G(noise, depth, alpha)
 
                     # provide feedback
