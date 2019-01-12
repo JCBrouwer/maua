@@ -213,6 +213,7 @@ class RelativisticAverageHinge(GANLoss):
         super().__init__(D)
 
     def loss_D(self, real_samps, fake_samps, **kwargs):
+
         # Obtain predictions
         r_preds = self.D(real_samps, **kwargs)
         f_preds = self.D(fake_samps, **kwargs)
@@ -251,10 +252,10 @@ class R1Regularized(GANLoss):
         self.reg_param = 10
         self.reg = None
 
-    def loss_D(self, real_samps, fake_samps, height, alpha):
+    def loss_D(self, real_samps, fake_samps, **kwargs):
         # predictions for real images and fake images separately :
-        r_preds = self.D(real_samps, height, alpha)
-        f_preds = self.D(fake_samps, height, alpha)
+        r_preds = self.D(real_samps, **kwargs)
+        f_preds = self.D(fake_samps, **kwargs)
         self.reg = self.reg_param * self.compute_grad2(r_preds, real_samps).mean()
 
         # calculate the real loss:
@@ -266,8 +267,8 @@ class R1Regularized(GANLoss):
         # return final losses
         return (real_loss + fake_loss) / 2
 
-    def loss_G(self, _, fake_samps, height, alpha):
-        preds, _, _ = self.D(fake_samps, height, alpha)
+    def loss_G(self, _, fake_samps, **kwargs):
+        preds, _, _ = self.D(fake_samps, **kwargs)
         return self.criterion(th.squeeze(preds), th.ones(fake_samps.shape[0]).to(self.D.device))
 
     def compute_grad2(self, d_out, x_in):

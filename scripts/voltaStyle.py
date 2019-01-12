@@ -1,15 +1,18 @@
 import os, sys
 from maua.neural_style import NeuralStyle
 
+# based on volta-x3 script by /u/vic8760 on Reddit
+# https://www.reddit.com/r/deepdream/comments/954h2w/voltax3_script_release_the_best_hq_neuralstyle/
+
 content = sys.argv[1]
 content_name, _ = os.path.splitext(os.path.basename(content))
 
 style = sys.argv[2]
 style_names = list(map(lambda s: os.path.splitext(os.path.basename(s))[0], style.split(',')))
 
-output = '../Pictures/neurout/2018/december/%s_%s.png'%(content_name, "_".join(style_names))
+output = 'maua/output/%s_%s.png'%(content_name, "_".join(style_names))
 
-style_factor = 0.25
+style_factor = 1
 
 ns = NeuralStyle(
     content_image = content,
@@ -102,7 +105,7 @@ img = ns.run(
 
 ns.run(
     init_image = img,
-    image_size = 6000,
+    image_size = 5300,
     style_layers = 'relu1_1,relu2_1,relu3_1',
     output_image = output
 )

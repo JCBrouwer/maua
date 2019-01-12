@@ -89,8 +89,7 @@ class ProGAN(BaseModel):
 
     def setup_loss(self, loss):
         if isinstance(loss, str):
-            from ..networks.losses import GANLoss, WGAN_GP, LSGAN, LSGAN_SIGMOID, HingeLoss,
-                                          RelativisticAverageHinge, R1Regularized
+            from ..networks.losses import GANLoss, WGAN_GP, LSGAN, LSGAN_SIGMOID, HingeLoss, RelativisticAverageHinge, R1Regularized
             loss = loss.lower()  # lowercase the string
             if loss == "wgan":
                 loss = WGAN_GP(self.device, self.D, self.drift, use_gp=False)
@@ -105,7 +104,7 @@ class ProGAN(BaseModel):
             elif loss == "hinge":
                 loss = HingeLoss(self.D)
             elif loss == "rel-avg":
-                loss = RelativisticAverageHingeLoss(self.D)
+                loss = RelativisticAverageHinge(self.D)
             elif loss == "r1-reg":
                 loss = R1Regularized(self.D)
             else:
@@ -150,7 +149,7 @@ class ProGAN(BaseModel):
         print("Generating prescaled dataset...")
         self.prescaled_data = True
         data_path = 'maua/datasets/%s_prescaled'%self.name
-        if not len(dataloader)*len(sizes) == len(BaseDataLoader(data_path,tn.ToTensor())):
+        if not os.path.isdir(data_path) or not len(dataloader)*len(sizes) == len(BaseDataLoader(data_path,tn.ToTensor())):
             # create a copy of the dataset on disk for each size
             from pathos.multiprocessing import ProcessingPool as Pool
             pool = Pool(len(sizes))
@@ -203,7 +202,7 @@ class ProGAN(BaseModel):
             self.D_optim.zero_grad()
 
             # TODO add WGAN regularization and self.regularize param
-            if type(self.loss, R1Regularized):
+            if isinstance(self.loss, R1Regularized):
                 loss.backward(retain_graph=True)
                 self.loss.reg.backward()
             else:
@@ -216,11 +215,11 @@ class ProGAN(BaseModel):
         return loss_val / self.n_critic
 
 
-    def optimize_G(self, noise, depth, alpha):
+    def optimize_G(self, noise, real_batch, depth, alpha):
         # generate fake samples:
         fake_samples = self.G(noise, depth, alpha)
 
-        loss = self.loss.loss_G(None, fake_samples, depth=depth, alpha=alpha)
+        loss = self.loss.loss_G(real_batch, fake_samples, depth=depth, alpha=alpha)
 
         # optimize the generator
         self.G_optim.zero_grad()
@@ -310,7 +309,7 @@ class ProGAN(BaseModel):
                     noise = th.randn(images.shape[0], self.latent_size).to(self.device)
 
                     loss_D += self.optimize_D(noise, images, depth, alpha)
-                    loss_G += self.optimize_G(noise, depth, alpha)
+                    loss_G += self.optimize_G(noise, images, depth, alpha)
 
                     # provide feedback
                     if i % math.ceil(total_batches * log_freq) == 0 and not (i == 0 or i == total_batches):

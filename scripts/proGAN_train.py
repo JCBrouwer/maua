@@ -9,6 +9,7 @@ model = ProGAN(
     name = 'flowerGAN',
     save_dir = 'maua/modelzoo/flower_progan',
     depth = depth,
+    loss = "r1-reg",
     latent_size = 128,
     gpu = 0,
     seed = 27
