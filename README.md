@@ -14,6 +14,8 @@ NOTE: Maua is still at an early stage of development, weird bugs/behaviors/expec
 
 Maua requires Python 3.7 and PyTorch 1.0 (which can be installed [here](https://pytorch.org/get-started/locally/)). Training neural networks takes a lot of compute so most of the included networks require a decent GPU to get results in a reasonable amount of time.
 
+Furthermore Maua relies on [Pathos](https://github.com/uqfoundation/pathos)(`pip install pathos`) for multithreading.
+
 There are also some optional dependencies required for running a GLWindow with network outputs, namely [PyCuda](https://wiki.tiker.net/PyCuda) and [Glumpy](https://glumpy.github.io/). These can be installed with pip or conda.
 
 After installing the needed dependencies this repository can be cloned and you can get to work!

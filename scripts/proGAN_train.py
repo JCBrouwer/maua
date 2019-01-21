@@ -2,21 +2,22 @@ import torch as th
 import torchvision.transforms as tn
 from torchvision.utils import save_image
 from ..models import ProGAN
-from ..dataloaders import BaseDataLoader
+from ..dataloaders.proGAN import ProGANDataLoader
 
 depth = 9
 model = ProGAN(
     name = 'flowerGAN',
-    save_dir = 'maua/modelzoo/flower_progan',
+    save_dir = 'maua/modelzoo/flowerGAN',
     depth = depth,
-    loss = "r1-reg",
     latent_size = 128,
     gpu = 0,
     seed = 27
 )
 
-dataloader = BaseDataLoader(
+dataloader = ProGANDataLoader(
     data_path = 'maua/datasets/flower_pix2pix/B',
+    prescaled_data = True,
+    prescaled_data_path = 'maua/datasets/flowerGAN_prescaled',
     transforms = tn.Compose([tn.Resize(2**depth),
                              tn.RandomHorizontalFlip(),
                              tn.RandomVerticalFlip(),
@@ -29,12 +30,11 @@ dataloader = BaseDataLoader(
 
 model.train(
     dataloader = dataloader,
-    prescaled_data = True,
     fade_in = 0.75,
     save_freq = 25,
     log_freq = 5,
-    epochs_dict = {8: 50, 16: 50, 32: 50, 64: 50, 128: 75, 256: 75, 512: 100},
-    batches_dict = {8: 512, 16: 128, 32: 48, 64: 24, 128: 12, 256: 6, 512: 3}
+    loss = "r1-reg",
+    num_epochs = 75
 )
 
 result = model(th.randn(1, 128)*3) # messing with the latent vector has a big effect on output image
