@@ -3,7 +3,7 @@ import torchvision as tv
 from .image_folder import ImageFolder
 
 class BaseDataLoader():
-    def __init__(self, data_path, transforms=tv.transforms.ToTensor(), batch_size=8):
+    def __init__(self, data_path, transforms=tv.transforms.ToTensor(), batch_size=1):
         """
         constructor for the class BaseDataLoader
         :param data_path: path to data

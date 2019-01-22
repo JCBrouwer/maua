@@ -1,7 +1,8 @@
-import os.path, math
+import os.path, math, time, itertools, tqdm
 import torch as th
 import torchvision.transforms as tn
 import torch.utils.data
+from PIL import Image
 from .base import BaseDataLoader
 from ..dataloaders import ImageFolder
 from .image_folder import make_dataset
@@ -15,29 +16,34 @@ class ProGANDataLoader(BaseDataLoader):
                                trades large performance boost for smaller sizes for more disk space.
         :param prescaled_data_path: path to save prescaled dataset to
         """
-        super(ProGANDataLoader).__init__(**kwargs)
+        super(ProGANDataLoader, self).__init__(**kwargs)
         self.prescaled_data = prescaled_data
         self.prescaled_data_path = prescaled_data_path
 
     
     def get_batch_sizes(self, model):
+        print("Calculating maximum batch sizes...")
         batch_sizes = dict()
         batch_size = 512
-        for depth, image_size in enumerate(map(lambda x: 2^(x+3), range(model.depth-2))):
+        for depth, image_size in enumerate(map(lambda x: 2**(x+3), range(model.depth-1))):
             too_big = True
             while too_big:
-                noise = th.randn(batch_size, model.latent_size).to(model.device)
-                images = th.randn(batch_size, model.latent_size).to(model.device)
+                if batch_size < 1:
+                    batch_sizes.setdefault(image_size, 0)
+                    return batch_sizes
+                noise = th.randn(round(batch_size / 2.)*2, model.latent_size).to(model.device)
+                images = th.randn(round(batch_size / 2.)*2, 3, image_size, image_size).to(model.device)
                 try:
-                    model.optimize_D(noise, images, depth+3, 1.0)
-                    model.optimize_G(noise, images, depth+3, 1.0)
+                    model.optimize_D(noise, images, depth+1, 1.0)
+                    model.optimize_G(noise, images, depth+1, 1.0)
                     batch_sizes[image_size] = batch_size
                     too_big = False
                 except RuntimeError:
                     import gc
                     gc.collect()
                     th.cuda.empty_cache()
-                    batch_size /= math.sqrt(2)
+                    batch_size /= math.sqrt(math.sqrt(2))
+            print(str(image_size)+": "+str(round(batch_size / 2.)*2))
         return batch_sizes
 
 
@@ -50,24 +56,40 @@ class ProGANDataLoader(BaseDataLoader):
     def generate_prescaled_dataset(self, sizes):
         if not self.prescaled_data: return
         print("Generating prescaled dataset...")
-        data_path = 'maua/datasets/%s_prescaled'%self.data_path.split('/')[-1] if self.prescaled_data_path is None else self.prescaled_data_path
+        data_path = self.prescaled_data_path
+        if data_path is None: data_path = 'maua/datasets/%s_prescaled'%self.data_path.split('/')[-1]
         if not os.path.isdir(data_path) or \
-           not len(self.dataloader)*len(sizes) == len(ProGANDataLoader(data_path=self.data_path)):
+           not len(self.dataloader)*len(sizes) == len(ProGANDataLoader(data_path=data_path)):
             # create a copy of the dataset on disk for each size
-            from pathos.multiprocessing import ProcessingPool as Pool
-            pool = Pool(len(sizes))
+            from pathos.multiprocessing import ProcessingPool
+            pool = ProcessingPool()
 
-            def prescale_dataset(size):
-                os.makedirs(data_path+"/%s"%size, exist_ok=True)
-                transforms = tn.Compose([self.transforms, tn.Resize(size), tn.ToTensor()])
-                t_data = BaseDataLoader(self.data_path, transforms=transforms, batch_size=1)
-                for i, sample in enumerate(t_data, 1):
-                    sample = th.clamp(sample, min=0, max=1)
-                    save_image(sample, data_path+"/%s/%s.png"%(size,i))
-                return len(os.listdir(data_path+"/%s"%size))
+            def prescale_dataset(tup):
+                image_file, size = tup
+                try:
+                    Image.open(data_path+"/%s/%s"%(size,image_file.split("/")[-1]))
+                    return 1
+                except:
+                    os.makedirs(data_path+"/%s"%size, exist_ok=True)
+                    image = Image.open(self.data_path+"/"+image_file)
+                    transforms = tn.Compose([self.transforms, tn.Resize(size), tn.ToTensor()])
+                    processed = th.clamp(transforms(image), min=0, max=1)
+                    save_image(processed, data_path+"/%s/%s"%(size,image_file.split("/")[-1]))
+                    return 1
 
-            results = pool.map(prescale_dataset, sizes)
+            jobs = list(itertools.product(filter(lambda im: not im.startswith("."), os.listdir(self.data_path)), sizes))
+            results = pool.amap(prescale_dataset, jobs)
+            time.sleep(1)
+            pbar = tqdm.tqdm(total=len(self.dataloader)*len(sizes))
+            pbar.set_description("Images processed")
+            while not results.ready():
+                num_files = sum([len(os.listdir(data_path+"/%s"%size)) for size in sizes])
+                pbar.update(num_files - pbar.n)
+                time.sleep(1)
+            pbar.close()
             pool.close()
             pool.join()
-            assert sum(results) == len(self.dataloader)*len(sizes)
-        self.dataloader.data_path = data_path
+            assert sum(results.get()) == len(self.dataloader)*len(sizes)
+        else:
+            print("Dataset already generated.")
+        self.data_path = data_path

@@ -191,7 +191,7 @@ class ProGAN(BaseModel):
 
 
     def train(self, continue_train=False, data_path='maua/datasets/default_progan',
-        dataloader=None, start_epoch=1, start_depth=1, until_depth=1, fade_in=0.5, save_freq=25,
+        dataloader=None, start_epoch=1, start_depth=1, until_depth=None, fade_in=0.5, save_freq=25,
         log_freq=5, num_epochs=50, learning_rates_dict={256: 5e-4, 512: 2.5e-4, 1024: 1e-4},
         n_critic=1, loss="wgan-gp"):
         """
@@ -227,8 +227,8 @@ class ProGAN(BaseModel):
         # create dataloader
         if dataloader is None and self.dataloader is None:
             transforms = tv.transforms.Compose([tn.Resize(2**(self.depth + 1)), tn.ToTensor()])
-            dataloader = ProGANDataLoader(data_path=data_path, transforms=transforms, batch_size=1)
-            dataloader.generate_prescaled_dataset(sizes=map(lambda x: 2^(x+3), range(self.depth-2)))
+            dataloader = ProGANDataLoader(data_path=data_path, transforms=transforms)
+        dataloader.generate_prescaled_dataset(sizes=list(map(lambda x: 2**(x+3), range(self.depth-1))))
         self.dataloader = dataloader
         batches_dict = self.dataloader.get_batch_sizes(self)
         dataset_size = len(dataloader)
