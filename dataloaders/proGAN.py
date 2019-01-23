@@ -36,14 +36,14 @@ class ProGANDataLoader(BaseDataLoader):
                 try:
                     model.optimize_D(noise, images, depth+1, 1.0)
                     model.optimize_G(noise, images, depth+1, 1.0)
-                    batch_sizes[image_size] = batch_size
+                    batch_sizes[image_size] = round(batch_size / 4.)*2
                     too_big = False
                 except RuntimeError:
                     import gc
                     gc.collect()
                     th.cuda.empty_cache()
                     batch_size /= math.sqrt(math.sqrt(2))
-            print(str(image_size)+": "+str(round(batch_size / 2.)*2))
+        print(batch_sizes)
         return batch_sizes
 
 

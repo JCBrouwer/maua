@@ -33,7 +33,7 @@ model.train(
     fade_in = 0.75,
     save_freq = 25,
     log_freq = 5,
-    loss = "wgan-gp",
+    loss = "r1-reg",
     num_epochs = 75
 )
 

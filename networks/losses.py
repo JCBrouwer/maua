@@ -245,8 +245,9 @@ class RelativisticAverageHinge(GANLoss):
 
 class R1Regularized(GANLoss):
 
-    def __init__(self, D):
+    def __init__(self, device, D):
         super().__init__(D)
+        self.device = device
         from torch.nn import BCEWithLogitsLoss
         self.criterion = BCEWithLogitsLoss()
         self.reg_param = 10
@@ -254,22 +255,28 @@ class R1Regularized(GANLoss):
 
     def loss_D(self, real_samps, fake_samps, **kwargs):
         # predictions for real images and fake images separately :
-        r_preds = self.D(real_samps, **kwargs)
-        f_preds = self.D(fake_samps, **kwargs)
-        self.reg = self.reg_param * self.compute_grad2(r_preds, real_samps).mean()
+        r_preds = self.D(real_samps, **kwargs).requires_grad_()
+        f_preds = self.D(fake_samps, **kwargs).requires_grad_()
 
         # calculate the real loss:
-        real_loss = self.criterion(th.squeeze(r_preds), th.ones(real_samps.shape[0]).to(self.D.device))
+        real_loss = self.criterion(th.squeeze(r_preds), th.ones(real_samps.shape[0]).to(self.device))
 
         # calculate the fake loss:
-        fake_loss = self.criterion(th.squeeze(f_preds), th.zeros(fake_samps.shape[0]).to(self.D.device))
+        fake_loss = self.criterion(th.squeeze(f_preds), th.zeros(fake_samps.shape[0]).to(self.device))
+
+        loss = (real_loss + fake_loss) / 2
+        loss.backward(retain_graph=True)
+
+        # R1 regularization
+        reg = self.reg_param * self.compute_grad2(r_preds, real_samps).mean()
+        reg.backward()
 
         # return final losses
-        return (real_loss + fake_loss) / 2
+        return loss
 
     def loss_G(self, _, fake_samps, **kwargs):
-        preds, _, _ = self.D(fake_samps, **kwargs)
-        return self.criterion(th.squeeze(preds), th.ones(fake_samps.shape[0]).to(self.D.device))
+        preds = self.D(fake_samps, **kwargs)
+        return self.criterion(th.squeeze(preds), th.ones(fake_samps.shape[0]).to(self.device))
 
     def compute_grad2(self, d_out, x_in):
         batch_size = x_in.size(0)

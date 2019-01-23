@@ -95,7 +95,7 @@ class ProGAN(BaseModel):
             elif loss == "rel-avg":
                 loss = RelativisticAverageHinge(self.D)
             elif loss == "r1-reg":
-                loss = R1Regularized(self.D)
+                loss = R1Regularized(self.device, self.D)
             else:
                 raise ValueError("Unknown loss function requested")
         elif not isinstance(loss, GANLoss):
@@ -133,6 +133,9 @@ class ProGAN(BaseModel):
 
 
     def optimize_D(self, noise, real_batch, depth, alpha):
+        self.set_requires_grad(self.G, False)
+        self.set_requires_grad(self.D, True)
+
         # downsample the real_batch for the given depth
         down_sample_factor = int(np.power(2, self.depth - depth - 1)) if not self.dataloader.prescaled_data else 1
         prior_downsample_factor = max(int(np.power(2, self.depth - depth)), 0) if not self.dataloader.prescaled_data else 2
@@ -149,19 +152,15 @@ class ProGAN(BaseModel):
 
         loss_val = 0
         for _ in range(self.n_critic):
-            # generate a batch of samples
-            fake_samples = self.G(noise, depth, alpha).detach()
-
-            loss = self.loss.loss_D(real_samples, fake_samples, depth=depth, alpha=alpha)
-
             # optimize discriminator
             self.D_optim.zero_grad()
 
-            # TODO add WGAN regularization and self.regularize param
-            if isinstance(self.loss, R1Regularized):
-                loss.backward(retain_graph=True)
-                self.loss.reg.backward()
-            else:
+            # generate a batch of samples
+            fake_samples = self.G(noise, depth, alpha).detach()
+
+            loss = self.loss.loss_D(real_samples.requires_grad_(), fake_samples.requires_grad_(), depth=depth, alpha=alpha)
+
+            if not isinstance(self.loss, R1Regularized):
                 loss.backward()
 
             self.D_optim.step()
@@ -172,14 +171,17 @@ class ProGAN(BaseModel):
 
 
     def optimize_G(self, noise, real_batch, depth, alpha):
-        # generate fake samples:
-        fake_samples = self.G(noise, depth, alpha)
-
-        loss = self.loss.loss_G(real_batch, fake_samples, depth=depth, alpha=alpha)
+        self.set_requires_grad(self.G, True)
+        self.set_requires_grad(self.D, False)
 
         # optimize the generator
         self.G_optim.zero_grad()
+
+        fake_samples = self.G(noise, depth, alpha)
+
+        loss = self.loss.loss_G(real_batch, fake_samples, depth=depth, alpha=alpha)
         loss.backward()
+
         self.G_optim.step()
 
         # if use_ema is true, apply ema to the generator parameters
@@ -221,8 +223,8 @@ class ProGAN(BaseModel):
         total_epochs = num_epochs * self.depth
         if continue_train:
             epoch = self.get_latest_network(start_epoch, max_epoch=total_epochs)
-            start_depth = start_depth if start_depth != 1 else math.floor(epoch / num_epochs)
-            start_epoch -= math.floor(epoch / num_epochs) * num_epochs
+            start_depth = start_depth if start_depth != 1 else math.ceil(epoch / num_epochs)
+            start_epoch = epoch - math.floor(epoch / num_epochs) * num_epochs
 
         # create dataloader
         if dataloader is None and self.dataloader is None:
