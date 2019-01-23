@@ -288,7 +288,7 @@ class ProGAN(BaseModel):
                 if log_freq >= 1 and epoch % log_freq == 0 or epoch == total_epochs:
                     elapsed = str(datetime.timedelta(seconds=time.time() - global_time))
                     print("Elapsed: [%s] Epoch: %d / %d Fade in: %.02f d_loss: %f  g_loss: %f" %
-                          (elapsed, epoch, num_epochs, alpha, loss_D, loss_G))
+                          (elapsed, epoch, num_epochs*(self.depth-1), alpha, loss_D, loss_G))
                     # create a grid of samples and save it
                     gen_img_file = os.path.join(self.save_dir, "images", "sample_res%d_e%d" %
                                                 (current_res, epoch) + ".png")

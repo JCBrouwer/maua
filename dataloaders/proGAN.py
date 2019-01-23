@@ -36,7 +36,7 @@ class ProGANDataLoader(BaseDataLoader):
                 try:
                     model.optimize_D(noise, images, depth+1, 1.0)
                     model.optimize_G(noise, images, depth+1, 1.0)
-                    batch_sizes[image_size] = round(batch_size / 4.)*2
+                    batch_sizes[image_size] = round(batch_size / math.sqrt(2) / 2.)*2
                     too_big = False
                 except RuntimeError:
                     import gc
