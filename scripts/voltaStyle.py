@@ -1,6 +1,9 @@
 import os, sys
 from maua.neural_style import NeuralStyle
 
+# based on volta-x3 script by /u/vic8760 on Reddit
+# https://www.reddit.com/r/deepdream/comments/954h2w/voltax3_script_release_the_best_hq_neuralstyle/
+
 content = sys.argv[1]
 content_name, _ = os.path.splitext(os.path.basename(content))
 

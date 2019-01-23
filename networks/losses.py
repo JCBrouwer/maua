@@ -86,8 +86,7 @@ class TVLoss(th.nn.Module):
 ### NOTE **kwargs allow for extra arguments to discriminator (e.g. height and alpha for ProGANs)
 class GANLoss:
     """ Base class for all losses """
-    def __init__(self, device, D):
-        self.device = device
+    def __init__(self, D):
         self.D = D
 
     def loss_D(self, real_samps, fake_samps, **kwargs):
@@ -100,7 +99,8 @@ class GANLoss:
 class WGAN_GP(GANLoss):
 
     def __init__(self, device, D, drift=0.001, use_gp=False):
-        super().__init__(device, D)
+        super().__init__(D)
+        self.device = device
         self.drift = drift
         self.use_gp = use_gp
 
@@ -162,8 +162,8 @@ class WGAN_GP(GANLoss):
 
 class LSGAN(GANLoss):
 
-    def __init__(self, device, D):
-        super().__init__(device, D)
+    def __init__(self, D):
+        super().__init__(D)
 
     def loss_D(self, real_samps, fake_samps, **kwargs):
         return 0.5 * (((th.mean(self.D(real_samps, **kwargs)) - 1) ** 2)
@@ -175,8 +175,8 @@ class LSGAN(GANLoss):
 
 class LSGAN_SIGMOID(GANLoss):
 
-    def __init__(self, device, D):
-        super().__init__(device, D)
+    def __init__(self, D):
+        super().__init__(D)
 
     def loss_D(self, real_samps, fake_samps, **kwargs):
         from torch.nn.functional import sigmoid
@@ -188,3 +188,103 @@ class LSGAN_SIGMOID(GANLoss):
         from torch.nn.functional import sigmoid
         scores = th.mean(sigmoid(self.D(fake_samps, **kwargs)))
         return 0.5 * ((scores - 1) ** 2)
+
+
+class HingeLoss(GANLoss):
+
+    def __init__(self, D):
+        super().__init__(D)
+
+    def loss_D(self, real_samps, fake_samps, **kwargs):
+        r_preds = self.D(real_samps, **kwargs)
+        f_preds = self.D(fake_samps, **kwargs)
+
+        loss = th.mean(th.nn.ReLU()(1 - r_preds)) + th.mean(th.nn.ReLU()(1 + f_preds))
+
+        return loss
+
+    def loss_G(self, _, fake_samps, **kwargs):
+        return -th.mean(self.D(fake_samps, **kwargs))
+
+
+class RelativisticAverageHinge(GANLoss):
+
+    def __init__(self, D):
+        super().__init__(D)
+
+    def loss_D(self, real_samps, fake_samps, **kwargs):
+
+        # Obtain predictions
+        r_preds = self.D(real_samps, **kwargs)
+        f_preds = self.D(fake_samps, **kwargs)
+
+        # difference between real and fake:
+        r_f_diff = r_preds - th.mean(f_preds)
+
+        # difference between fake and real samples
+        f_r_diff = f_preds - th.mean(r_preds)
+
+        # return the loss
+        loss = th.mean(th.nn.ReLU()(1 - r_f_diff)) + th.mean(th.nn.ReLU()(1 + f_r_diff))
+
+        return loss
+
+    def loss_G(self, real_samps, fake_samps, **kwargs):
+        # Obtain predictions
+        r_preds = self.D(real_samps, **kwargs)
+        f_preds = self.D(fake_samps, **kwargs)
+
+        # difference between real and fake:
+        r_f_diff = r_preds - th.mean(f_preds)
+
+        # difference between fake and real samples
+        f_r_diff = f_preds - th.mean(r_preds)
+
+        # return the loss
+        return th.mean(th.nn.ReLU()(1 + r_f_diff)) + th.mean(th.nn.ReLU()(1 - f_r_diff))
+
+class R1Regularized(GANLoss):
+
+    def __init__(self, device, D):
+        super().__init__(D)
+        self.device = device
+        from torch.nn import BCEWithLogitsLoss
+        self.criterion = BCEWithLogitsLoss()
+        self.reg_param = 10
+        self.reg = None
+
+    def loss_D(self, real_samps, fake_samps, **kwargs):
+        # predictions for real images and fake images separately :
+        r_preds = self.D(real_samps, **kwargs).requires_grad_()
+        f_preds = self.D(fake_samps, **kwargs).requires_grad_()
+
+        # calculate the real loss:
+        real_loss = self.criterion(th.squeeze(r_preds), th.ones(real_samps.shape[0]).to(self.device))
+
+        # calculate the fake loss:
+        fake_loss = self.criterion(th.squeeze(f_preds), th.zeros(fake_samps.shape[0]).to(self.device))
+
+        loss = (real_loss + fake_loss) / 2
+        loss.backward(retain_graph=True)
+
+        # R1 regularization
+        reg = self.reg_param * self.compute_grad2(r_preds, real_samps).mean()
+        reg.backward()
+
+        # return final losses
+        return loss
+
+    def loss_G(self, _, fake_samps, **kwargs):
+        preds = self.D(fake_samps, **kwargs)
+        return self.criterion(th.squeeze(preds), th.ones(fake_samps.shape[0]).to(self.device))
+
+    def compute_grad2(self, d_out, x_in):
+        batch_size = x_in.size(0)
+        grad_dout = th.autograd.grad(
+            outputs=d_out.sum(), inputs=x_in,
+            create_graph=True, retain_graph=True, only_inputs=True
+        )[0]
+        grad_dout2 = grad_dout.pow(2)
+        assert(grad_dout2.size() == x_in.size())
+        reg = grad_dout2.view(batch_size, -1).sum(1)
+        return reg

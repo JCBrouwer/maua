@@ -1,5 +1,5 @@
 # Maua
-## v0.1.1
+## v0.2
 
 Maua is a framework that allows for easy training of and interoperability between multiple state of the art image processing networks. Maua provides a modular object oriented API that allows uses ranging from piecing together low level components into a new architecture to training a GAN with a single command.
 
@@ -13,6 +13,8 @@ NOTE: Maua is still at an early stage of development, weird bugs/behaviors/expec
 ## Instalation
 
 Maua requires Python 3.7 and PyTorch 1.0 (which can be installed [here](https://pytorch.org/get-started/locally/)). Training neural networks takes a lot of compute so most of the included networks require a decent GPU to get results in a reasonable amount of time.
+
+Furthermore Maua relies on [Pathos](https://github.com/uqfoundation/pathos)(`pip install pathos`) for multithreading.
 
 There are also some optional dependencies required for running a GLWindow with network outputs, namely [PyCuda](https://wiki.tiker.net/PyCuda) and [Glumpy](https://glumpy.github.io/). These can be installed with pip or conda.
 
@@ -63,7 +65,7 @@ Below is a list of planned features and improvements:
 
 - Style Transfer
     - Tiling
-    - Optic flow weighting
+    - Optic flow weighting / video style transfer
     - Segmentation maps
 	- Deep painterly harmonization
 - Pix2Pix
@@ -74,8 +76,8 @@ Below is a list of planned features and improvements:
 - ProGAN
     - Conditional ProGAN
 	- Self attention loss
-	- Relativistic hinge loss
-	- Ganstability loss
+	- ~Relativistic hinge loss~
+	- ~Ganstability loss (R1 regularization)~
 - Video / GLWindow
     - Video writer
     - MIDI/keyboard interactivity
@@ -90,13 +92,13 @@ Below is a list of planned features and improvements:
 	- SRGAN
 	- vid2vid / RecycleGAN
 - YAML Config System
-- Gradient Checkpointing
+- Gradient accumulation
 - Options for 32, 16, or 8 bit float/int computation
 
 
 ## Acknowledgments
 
-Maua contains partial/full implementations of and/or uses code from the papers and repositories listed below:
+Maua contains partial/full implementations of and/or uses code from the papers/repositories listed below:
 
 ProGAN: [paper](https://arxiv.org/abs/1710.10196), [code](https://github.com/akanimax/pro_gan_pytorch)
 
@@ -105,6 +107,10 @@ Pix2Pix: [paper](https://arxiv.org/abs/1611.07004), [paper](https://arxiv.org/ab
 Neural Style: [paper](https://arxiv.org/abs/1508.06576), [code](https://github.com/ProGamerGov/neural-style-pt)
 
 GLWindow: [code](https://gist.github.com/victor-shepardson/5b3d3087dc2b4817b9bffdb8e87a57c4)
+
+R1 Regularization: [paper](https://avg.is.tuebingen.mpg.de/publications/meschedericml2018), [code](https://github.com/LMescheder/GAN_stability)
+
+Relativistic Average Discriminator: [paper](https://arxiv.org/abs/1807.00734)
 
 
 ## License
