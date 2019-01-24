@@ -10,7 +10,7 @@ Maua seeks to integrate many different approaches under a single umbrella to str
 NOTE: Maua is still at an early stage of development, weird bugs/behaviors/expectations still lurk in the code that will slowly be ironed out as the framework matures.
 
 
-## Instalation
+## Installation
 
 Maua requires Python 3.7 and PyTorch 1.0 (which can be installed [here](https://pytorch.org/get-started/locally/)). Training neural networks takes a lot of compute so most of the included networks require a decent GPU to get results in a reasonable amount of time.
 
