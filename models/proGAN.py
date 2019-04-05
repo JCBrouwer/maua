@@ -194,8 +194,9 @@ class ProGAN(BaseModel):
 
     def train(self, continue_train=False, data_path='maua/datasets/default_progan',
         dataloader=None, start_epoch=1, start_depth=1, until_depth=None, fade_in=0.5, save_freq=25,
-        log_freq=5, num_epochs=50, learning_rates_dict={256: 5e-4, 512: 2.5e-4, 1024: 1e-4},
-        n_critic=1, loss="wgan-gp"):
+        log_freq=5, num_epochs=50, learning_rates_dict={256: 5e-4, 512: 2.5e-4, 1024: 1e-4}, n_critic=1,
+        loss="r1-reg", batches_dict = {8: 256, 16: 256, 32: 128, 64: 32, 128: 18, 256: 8, 512: 4, 1024: 8},
+        auto_batch_sizes=False):
         """
         Training function for ProGAN object
         :param continue_train: whether to continue training or not
@@ -212,8 +213,10 @@ class ProGAN(BaseModel):
         :param loss: the loss function to be used. Can either be a string =>
                         ["wgan-gp", "wgan", "lsgan", "lsgan-sig", "hinge", "rel-avg", "r1-reg"]
                      or an instance of GANLoss
+        :param batches_dict: dictionary of batch sizes per size
+        :param auto_batch_sizes: whether to automatically guess maximum batch sizes
         """
-        self.model_names = ["G", "D"]
+        self.model_names = ["G", "D", "D_optim", "G_optim"]
         self.n_critic = n_critic
         self.loss = self.setup_loss(loss)
 
@@ -232,7 +235,7 @@ class ProGAN(BaseModel):
             dataloader = ProGANDataLoader(data_path=data_path, transforms=transforms)
         dataloader.generate_prescaled_dataset(sizes=list(map(lambda x: 2**(x+3), range(self.depth-1))))
         self.dataloader = dataloader
-        batches_dict = self.dataloader.get_batch_sizes(self)
+        if auto_batch_sizes: batches_dict = self.dataloader.get_batch_sizes(self)
         dataset_size = len(dataloader)
         print('# training images = %d' % dataset_size)
 
@@ -266,7 +269,7 @@ class ProGAN(BaseModel):
                     loss_D += self.optimize_D(noise, images, depth, alpha)
                     loss_G += self.optimize_G(noise, images, depth, alpha)
 
-                    if i % math.ceil(total_batches * log_freq) == 0 and not (i == 0 or i == total_batches):
+                    if i % math.ceil(total_batches * log_freq) == 0 and not i == 0:
                         elapsed = str(datetime.timedelta(seconds=time.time() - global_time))
                         print("Elapsed: [%s] Batch: %d / %d d_loss: %f  g_loss: %f" %
                                 (elapsed, i, total_batches, loss_D / math.ceil(total_batches*log_freq),
@@ -279,7 +282,7 @@ class ProGAN(BaseModel):
                         with th.no_grad():
                             self.create_grid(
                                 samples=self.G(fixed_input, depth, alpha),
-                                scale_factor=int(np.power(2, self.depth - depth - 2)),
+                                scale_factor=int(np.power(2, self.depth - depth)/4),
                                 img_file=gen_img_file,
                             )
 
@@ -303,6 +306,8 @@ class ProGAN(BaseModel):
                     self.save_networks(epoch)
 
                 epoch += 1
+            
+            th.cuda.empty_cache()
 
         print("Training finished, took: ", datetime.timedelta(seconds=time.time() - global_time))
         self.save_networks("final")

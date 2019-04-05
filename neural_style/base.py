@@ -194,7 +194,7 @@ class NeuralStyle(nn.Module):
             loopVal = 1
         elif self.optimizer == 'adam':
             print("Running optimization with ADAM")
-            optimizer = optim.Adam([img], lr = self.learning_rate)
+            optimizer = optim.Adam([img], lr = self.learning_rate, betas = (0.99, 0.999), eps = 1e-1)
             loopVal = self.num_iterations - 1
         return optimizer, loopVal
 

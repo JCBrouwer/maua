@@ -58,12 +58,16 @@ class BaseModel(th.nn.Module):
             if isinstance(net, th.nn.DataParallel):
                 net = net.module
             print('loading the model from %s' % load_path)
-            state_dict = th.load(load_path, map_location=self.device)
+            try:
+                state_dict = th.load(load_path, map_location=self.device)
+            except FileNotFoundError:
+                print("%s checkpoint not found, initializing normally"%model_name)
+                continue
             if hasattr(state_dict, '_metadata'):
                 del state_dict._metadata
             if state_dict.keys() != net.state_dict().keys():
                 print('checkpoint state dictionaries are not identical, some parameters may not be initialized correctly')
-            net.load_state_dict(state_dict, strict=False)
+            net.load_state_dict(state_dict) #strict=False
 
 
     # print network information
