@@ -13,11 +13,11 @@ from ..networks.discriminators import MultiscaleDiscriminator
 
 class CycleGAN(BaseModel):
     def __init__(self, input_nc=3, output_nc=3, ngf=32, ndf=32, subnet_G='resnet', unet_downs=8,
-                resnet_blocks=9, n_layers_D=3, norm='batch', pool_size=50, no_dropout=False, no_lsgan=True,
+                resnet_blocks=9, n_layers_D=2, norm='batch', pool_size=50, no_dropout=False, no_lsgan=True,
                 no_feat=False, no_vgg=True, init_type='normal', init_gain=0.02, lr=0.0002, beta1=0.5, beta2=0.999,
-                n_enhancers=2, n_scales=3, lambda_feat=10.0, lambda_A=10.0, lambda_B=10.0,
-                lambda_identity=0.5, lambda_vgg=1.0, vgg_type='vgg19', pooling='max', style_layers="",
-                content_layers="relu1_1,relu2_1,relu3_1,relu4_1,relu5_1", **kwargs):
+                n_enhancers=1, n_scales=2, lambda_feat=10.0, lambda_A=10.0, lambda_B=10.0,
+                lambda_identity=0.5, lambda_vgg=1.0, vgg_type='vgg19', pooling='max',
+                style_layers="", content_layers="", **kwargs):
         """
         constructor for the class CycleGAN, extends BaseModel
         :param input_nc: number of channels of input images
@@ -68,14 +68,20 @@ class CycleGAN(BaseModel):
                                   subnet=subnet_G,  n_blocks_enhancer=3, padding_type='reflect',
                                   use_deconvolution=True, n_downsampling=3)
         self.G_A = self.init_net(net, init_type, init_gain)
+
+        net = MultiscaleGenerator(input_nc=output_nc, output_nc=input_nc, ngf=ngf, norm_layer=norm_layer,
+                                  use_dropout=not no_dropout, n_blocks=resnet_blocks, n_enhancers=n_enhancers,
+                                  subnet=subnet_G,  n_blocks_enhancer=3, padding_type='reflect',
+                                  use_deconvolution=True, n_downsampling=3)
         self.G_B = self.init_net(net, init_type, init_gain)
 
         use_sigmoid = no_lsgan
-        net = MultiscaleDiscriminator(input_nc=output_nc, ndf=ndf, n_scales=n_scales,
-                                      n_layers=n_layers_D, norm_layer=norm_layer, use_sigmoid=use_sigmoid)
+        net = MultiscaleDiscriminator(input_nc=output_nc, ndf=ndf, n_scales=n_scales, n_layers=n_layers_D,
+                                      norm_layer=norm_layer, use_sigmoid=use_sigmoid)
         self.D_A = self.init_net(net, init_type, init_gain)
-        net = MultiscaleDiscriminator(input_nc=input_nc, ndf=ndf, n_scales=n_scales,
-                                      n_layers=n_layers_D, norm_layer=norm_layer, use_sigmoid=use_sigmoid)
+
+        net = MultiscaleDiscriminator(input_nc=input_nc, ndf=ndf, n_scales=n_scales, n_layers=n_layers_D,
+                                      norm_layer=norm_layer, use_sigmoid=use_sigmoid)
         self.D_B = self.init_net(net, init_type, init_gain)
 
         self.fake_A_pool = ImagePool(pool_size)
@@ -220,9 +226,11 @@ class CycleGAN(BaseModel):
         for preds in pred_fake:
             loss_D_fake += self.loss_GAN(preds, self.fake_label.expand_as(preds))
 
-        # Real
+        # capture discriminator feature targets with real inputs
         if not self.no_feat:
             (D.module if self.gpu is not -1 else D).capture_feature_targets()
+        
+        # Real
         pred_real = D(real)
         loss_D_real = 0
         for preds in pred_real:
@@ -261,25 +269,29 @@ class CycleGAN(BaseModel):
             loss_idt_A = 0
             loss_idt_B = 0
         
+        # capture discriminator features on fake inputs
         if not self.no_feat:
             (self.D_A.module if self.gpu is not -1 else self.D_A).capture_features()
             (self.D_B.module if self.gpu is not -1 else self.D_B).capture_features()
+
         # GAN loss D_A(G_A(A))
         loss_G_A = 0
         for preds in self.D_A(fake_B):
             loss_G_A += self.loss_GAN(preds, self.fake_label.expand_as(preds))
+
         # GAN loss D_B(G_B(B))
         loss_G_B = 0
         for preds in self.D_B(fake_A):
             loss_G_B += self.loss_GAN(preds, self.fake_label.expand_as(preds))
-        # Forward cycle loss
+
+        # cycle losses
         loss_cycle_A = self.loss_cycle(rec_A, real_A) * self.lambda_A
-        # Backward cycle loss
         loss_cycle_B = self.loss_cycle(rec_B, real_B) * self.lambda_B
 
         # combined loss
         loss_G = loss_G_A + loss_G_B + loss_cycle_A + loss_cycle_B + loss_idt_A + loss_idt_B
 
+        # discriminator feature losses
         if not self.no_feat:
             loss_G_feat = (self.D_A.module if self.gpu is not -1 else self.D).feature_loss()
             loss_G_feat += (self.D_B.module if self.gpu is not -1 else self.D).feature_loss()
@@ -367,7 +379,7 @@ class CycleGAN(BaseModel):
                 # G_A and G_B
                 loss_G = self.backward_G(fake_A, fake_B, rec_A, rec_B, real_A, real_B)
 
-                samples = th.stack([fake_A[0],real_A[0],rec_A[0],fake_B[0],real_B[0],rec_B[0]]).detach()
+                samples = th.stack([real_A[0],fake_B[0],rec_A[0],real_B[0],fake_A[0],rec_B[0]]).detach()
 
                 if i % math.ceil(total_batches * log_freq) == 0 and not (i == 0 or i == total_batches):
                     img_file = os.path.join(self.save_dir, "images", "sample_%d_%d.png"%(epoch, i))

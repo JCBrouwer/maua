@@ -37,7 +37,7 @@ class GramMatrix(th.nn.Module):
 
     def forward(self, input):
         B, C, H, W = input.size()
-        x_flat = input.view(C, H * W)
+        x_flat = input.view(B * C, H * W)
         return th.mm(x_flat, x_flat.t())
 
 
