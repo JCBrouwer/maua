@@ -10,7 +10,11 @@ model = Pix2Pix(
     direction = 'AtoB',
     lambda_L1 = 100.0,
     lambda_feat = 10.0,
+    lambda_vgg = 10.0,
+    no_feat = False,
     no_vgg = True,
+    no_dropout = True,
+    no_lsgan = True,
     n_enhancers = 1,
     resnet_blocks = 9,
     n_scales = 3,
@@ -19,16 +23,17 @@ model = Pix2Pix(
     seed = 27
 )
 
+
 model.train(
     data_path = 'maua/datasets/flower_pix2pix',
     num_epochs = 30,
     epochs_decay = 20,
     save_freq = 5,
-    log_freq = 1,
-    batch_size = 6,
+    log_freq = .25,
+    batch_size = 24,
     shuffle = True,
     resize = True,
-    loadSize = 512,
+    loadSize = 256,
     crop = False,
     vflip = False,
     hflip = True

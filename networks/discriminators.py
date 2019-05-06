@@ -7,56 +7,62 @@ import functools, itertools
 
 # TODO add n_critic for training just like ProGAN allowing multiple D steps per G step
 class MultiscaleDiscriminator(nn.Module):
-    def __init__(self, input_nc, n_scales=3, ndf=32, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False):
+    def __init__(self, input_nc, n_scales=3, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False):
         # creates nlayerD with each layer/scale accessible by name
         # append n_scales discriminators to model
         super(MultiscaleDiscriminator, self).__init__()
         self.n_scales = n_scales
+        self.use_sigmoid = use_sigmoid
 
         for scale in range(self.n_scales):
-            discriminator = NLayerDiscriminator(input_nc=input_nc, ndf=ndf, n_layers=n_layers,
-                                                norm_layer=norm_layer, use_sigmoid=use_sigmoid,
-                                                feature_loss=True)
+            discriminator = NLayerDiscriminator(input_nc, ndf, n_layers, norm_layer, use_sigmoid, True)
             setattr(self, 'discriminator_%s'%(scale), discriminator)
 
-    def capture_feature_targets(self):
+    def get_features(self, input):
+        # forward with input downsampled for each scale
+        # return list of lists of activations at each layer for each discriminator scale
+        results = []
         for scale in range(self.n_scales):
-            discriminator = getattr(self, 'discriminator_%s'%(scale))
-            for f in discriminator.feature_losses:
-                f.mode = 'capture'
+            # get separate layers of discriminator
+            discrim_seq = getattr(self, 'discriminator_%s'%(scale)).model
+            layers = {k:v for (k,v) in discrim_seq.named_children() if 'layer' in k}
 
-    def capture_features(self):
-        for scale in range(self.n_scales):
-            discriminator = getattr(self, 'discriminator_%s'%(scale))
-            for f in discriminator.feature_losses:
-                f.mode = 'loss'
+            # scale input for given discrim scale
+            prev_output = interpolate(input, scale_factor=2**(scale - self.n_scales + 1))
 
-    def feature_loss(self):
-        feature_loss = 0
-        for scale in range(self.n_scales):
-            discriminator = getattr(self, 'discriminator_%s'%(scale))
-            for mod in discriminator.feature_losses:
-                feature_loss += mod.loss / self.n_scales / len(discriminator.feature_losses)
-        return feature_loss
+            # forward through the network storing discriminator features by layer
+            per_scale_results = []
+            for idx in range(len(layers)):
+                layer = layers['layer_%s'%idx]
+                prev_output = layer(prev_output)
+                per_scale_results.append(prev_output)
+
+            final_preds = getattr(discrim_seq, 'final_conv')(per_scale_results[-1])
+            per_scale_results.append(final_preds)
+
+            if self.use_sigmoid:
+                final_preds = getattr(discrim_seq, 'sigmoid')(final_preds)
+                per_scale_results.append(final_preds)
+
+            results.append(per_scale_results)
+        return results
 
     def forward(self, input):
+        # forward with input downsampled for each scale
+        # return list of lists of predictions for each discriminator scale
         results = []
         for scale in range(self.n_scales):
             discriminator = getattr(self, 'discriminator_%s'%(scale))
-            downsampled_input = interpolate(input, scale_factor=2**(scale - self.n_scales))
+            downsampled_input = interpolate(input, scale_factor=2**(scale - self.n_scales + 1))
             predictions = discriminator(downsampled_input)
             results += predictions
-            for f in discriminator.feature_losses:
-                f.mode = 'None'
         return results
+                
 
-
-# TODO add option to insert StyleLoss instead / on top of ContentLoss
+# Defines the PatchGAN discriminator with the specified arguments.
 class NLayerDiscriminator(nn.Module):
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, feature_loss=True):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, multiscale=False):
         super(NLayerDiscriminator, self).__init__()
-        if feature_loss: from .losses import ContentLoss
-
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
@@ -64,53 +70,37 @@ class NLayerDiscriminator(nn.Module):
 
         kw = 4
         padw = 1
-        sequence = [
+        self.model = nn.Sequential()
+        self.model.add_module("layer_0", nn.Sequential(
             nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw),
             nn.LeakyReLU(0.2, True)
-        ]
-
-        if feature_loss:
-            loss_module = ContentLoss()
-            self.feature_losses = [loss_module]
-            sequence += [loss_module]
+        ))
 
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):
             nf_mult_prev = nf_mult
             nf_mult = min(2**n, 8)
-            sequence += [
+            self.model.add_module("layer_%s"%n, nn.Sequential(
                 nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
                           kernel_size=kw, stride=2, padding=padw, bias=use_bias),
                 norm_layer(ndf * nf_mult),
                 nn.LeakyReLU(0.2, True)
-            ]
-            if feature_loss:
-                loss_module = ContentLoss()
-                self.feature_losses += [loss_module]
-                sequence += [loss_module]
+            ))
 
         nf_mult_prev = nf_mult
         nf_mult = min(2**n_layers, 8)
-        sequence += [
+        self.model.add_module("layer_%s"%n_layers, nn.Sequential(
             nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
                       kernel_size=kw, stride=1, padding=padw, bias=use_bias),
             norm_layer(ndf * nf_mult),
             nn.LeakyReLU(0.2, True)
-        ]
-        
-        if feature_loss:
-            loss_module = ContentLoss()
-            self.feature_losses += [loss_module]
-            sequence += [loss_module]
+        ))
 
-        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]
+        self.model.add_module("final_conv", nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw))
 
         if use_sigmoid:
-            sequence += [nn.Sigmoid()]
-
-        self.model = nn.Sequential(*sequence)
-
+            self.model.add_module("sigmoid", nn.Sigmoid())
 
     def forward(self, input):
         return [self.model(input)]

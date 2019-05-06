@@ -6,8 +6,8 @@ import functools
 
 # TODO figure out how to make compatible with unet
 class MultiscaleGenerator(nn.Module):
-    def __init__(self, input_nc, output_nc, ngf=32, norm_layer=nn.BatchNorm2d, use_dropout=False,
-                 n_blocks=9, n_downsampling=3, n_enhancers=1, n_blocks_enhancer=3,
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False,
+                 n_blocks=9, n_downsampling=4, n_enhancers=1, n_blocks_enhancer=3,
                  padding_type='reflect', use_deconvolution=True, subnet='resnet'):
         # main generator (resnet or unet) first, without last couple conv layers
         # then n_enhancers that double resolution (1/2 ngf each time)
@@ -15,12 +15,11 @@ class MultiscaleGenerator(nn.Module):
         super(MultiscaleGenerator, self).__init__()
 
         self.n_enhancers = n_enhancers
-
         if subnet is 'resnet':
-            mainG = ResnetGenerator(input_nc, output_nc, ngf * 2**n_enhancers, norm_layer, use_dropout,
+            mainG = ResnetGenerator(input_nc, output_nc, ngf * 2**(n_enhancers - 1), norm_layer, use_dropout,
                                     n_blocks, n_downsampling, padding_type, use_deconvolution)
             # remove last couple conv layers
-            mainG = nn.Sequential(*mainG.model[:-3])
+            if n_enhancers != 0: mainG = nn.Sequential(*mainG.model[:-3])
         # elif subnet is 'unet':
         #     mainG = UnetGenerator(input_nc, output_nc, num_downs=n_downsampling, ngf * 2**n_enhancers,
         #                           norm_layer, use_dropout)
@@ -30,7 +29,7 @@ class MultiscaleGenerator(nn.Module):
         self.mainG = mainG
         
         for n in range(1, n_enhancers + 1):
-            e_ngf = ngf * 2**(n_enhancers - n)
+            e_ngf = int(ngf * 2**(n_enhancers - n - 1))
 
             if subnet is 'resnet':
                 enhanceG = ResnetGenerator(input_nc=input_nc, output_nc=output_nc, ngf=e_ngf,
@@ -78,8 +77,8 @@ class MultiscaleGenerator(nn.Module):
 class ResnetGenerator(nn.Module):
     """Defines the generator that consists of Resnet blocks between a few downsampling/upsampling operations.
     Code and idea originally from Justin Johnson's architecture. https://github.com/jcjohnson/fast-neural-style/"""
-    def __init__(self, input_nc, output_nc, ngf=32, norm_layer=nn.BatchNorm2d, use_dropout=False,
-                 n_blocks=9, n_downsampling=3, padding_type='reflect', use_deconvolution=True):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.InstanceNorm2d, use_dropout=False,
+                 n_blocks=9, n_downsampling=2, padding_type='reflect', use_deconvolution=True):
         assert(n_blocks >= 0)
         super(ResnetGenerator, self).__init__()
         self.input_nc = input_nc
@@ -112,11 +111,8 @@ class ResnetGenerator(nn.Module):
 
         for i in range(n_downsampling):
             mult = 2**(n_downsampling - i)
-            # nn.Upsample(scale_factor=2, mode='bilinear'),
-            #           nn.ReflectionPad2d(1),
-            #           nn.Conv2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=1, padding=0),
             model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2,
-                                         padding=1, output_padding=1, bias=use_bias),
+                                        padding=1, output_padding=1, bias=use_bias),
                       norm_layer(int(ngf * mult / 2)),
                       nn.ReLU(True)]
         model += [nn.ReflectionPad2d(3)]
@@ -329,6 +325,8 @@ class ProGrowGenerator(nn.Module):
 
         else:
             out = self.rgb_converters[0](y)
+
+        out = nn.Tanh()(out)
 
         return out
 
