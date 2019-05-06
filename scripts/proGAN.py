@@ -24,8 +24,8 @@ dataloader = ProGANDataLoader(
                              tn.RandomChoice([
                                 tn.RandomRotation([0,0]),
                                 tn.RandomRotation([90,90]),
-                                tn.RandomRotation([270,270])]),
-                             ])
+                                tn.RandomRotation([270,270])
+                             ]))
 )
 
 model.train(

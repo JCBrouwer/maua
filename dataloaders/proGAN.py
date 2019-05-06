@@ -49,7 +49,9 @@ class ProGANDataLoader(BaseDataLoader):
 
     def set_batch_size(self, current_res, new_val):
         if self.prescaled_data:
-            self.dataset = ImageFolder(data_path=self.data_path+"/%s"%current_res, transform=tn.ToTensor())
+            self.dataset = ImageFolder(data_path=self.data_path+"/%s"%current_res, transform=[tn.Normalize(mean=[0.5, 0.5, 0.5], 
+                                                                                                           std=[0.5, 0.5, 0.5]),
+                                                                                              tn.ToTensor()])
         self.dataloader = th.utils.data.DataLoader(self.dataset, batch_size=new_val, shuffle=True, num_workers=3)
 
 

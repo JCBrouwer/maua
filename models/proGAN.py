@@ -231,9 +231,14 @@ class ProGAN(BaseModel):
 
         # create dataloader
         if dataloader is None and self.dataloader is None:
-            transforms = tv.transforms.Compose([tn.Resize(2**(self.depth + 1)), tn.ToTensor()])
+            transforms = tv.transforms.Compose([
+                tn.Resize(2**(self.depth + 1)),
+                tn.ToTensor()
+            ])
             dataloader = ProGANDataLoader(data_path=data_path, transforms=transforms)
-        dataloader.generate_prescaled_dataset(sizes=list(map(lambda x: 2**(x+3), range(self.depth-1))))
+        dataloader.generate_prescaled_dataset(
+            sizes=list(map(lambda x: 2**(x+3), range(self.depth-1)))
+        )
         self.dataloader = dataloader
         if auto_batch_sizes: batches_dict = self.dataloader.get_batch_sizes(self)
         dataset_size = len(dataloader)
@@ -315,6 +320,7 @@ class ProGAN(BaseModel):
 
     # used to create grid of training images for logging
     def create_grid(self, samples, scale_factor, img_file, real_imgs=False):
+        samples = (samples + 1) / 2.0
         samples = th.clamp(samples, min=0, max=1)
         if scale_factor > 1 and not real_imgs:
             samples = interpolate(samples, scale_factor=scale_factor)
