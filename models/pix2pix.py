@@ -11,10 +11,10 @@ from ..networks.generators import MultiscaleGenerator
 from ..networks.discriminators import MultiscaleDiscriminator
 
 class Pix2Pix(BaseModel):
-    def __init__(self, input_nc=3, output_nc=3, ngf=32, ndf=32, subnet_G='resnet', unet_downs=8,
-                 resnet_blocks=9, n_layers_D=3, norm='batch', pool_size=0, no_dropout=False, no_lsgan=True,
+    def __init__(self, input_nc=3, output_nc=3, ngf=64, ndf=64, subnet_G='resnet', unet_downs=8,
+                 resnet_blocks=9, n_layers_D=3, norm='instance', pool_size=0, no_dropout=True, no_lsgan=False,
                  no_feat=False, no_vgg=True, init_type='normal', init_gain=0.02, lr=0.0002, beta1=0.5, beta2=0.999,
-                 direction='AtoB', lambda_L1=100.0, n_enhancers=2, n_scales=3, lambda_feat=10.0,
+                 direction='AtoB', lambda_L1=100.0, n_enhancers=1, n_scales=3, lambda_feat=10.0,
                  lambda_vgg=1.0, vgg_type='vgg19', pooling='max', style_layers="",
                  content_layers="relu1_1,relu2_1,relu3_1,relu4_1,relu5_1", **kwargs):
         """
@@ -62,7 +62,7 @@ class Pix2Pix(BaseModel):
         net = MultiscaleGenerator(input_nc=input_nc, output_nc=output_nc, ngf=ngf, norm_layer=norm_layer,
                                   use_dropout=not no_dropout, n_blocks=resnet_blocks, n_enhancers=n_enhancers,
                                   subnet=subnet_G,  n_blocks_enhancer=3, padding_type='reflect',
-                                  use_deconvolution=True, n_downsampling=3)
+                                  use_deconvolution=True, n_downsampling=4)
         self.G = self.init_net(net, init_type, init_gain)
 
         use_sigmoid = no_lsgan
@@ -203,12 +203,11 @@ class Pix2Pix(BaseModel):
         for preds in pred_fake:
             loss_D_fake += self.loss_GAN(preds, self.fake_label.expand_as(preds))
 
-        if not self.no_feat:
-            (self.D.module if self.gpu is not -1 else self.D).capture_feature_targets() 
-        pred_real = self.D(real_AB)
+        self.pred_real = (self.D.module if self.gpu is not -1 else self.D).get_features(real_AB)
+        # self.pred_real = self.D(real_AB)
         loss_D_real = 0
-        for preds in pred_real:
-            loss_D_real += self.loss_GAN(preds, self.real_label.expand_as(preds))
+        for preds in self.pred_real:
+            loss_D_real += self.loss_GAN(preds[-1], self.real_label.expand_as(preds[-1]))
 
         loss_D = (loss_D_fake + loss_D_real) * 0.5
         loss_D.backward()
@@ -223,20 +222,24 @@ class Pix2Pix(BaseModel):
         self.set_requires_grad(self.D, False)
         self.optimizer_G.zero_grad()
         
-        if not self.no_feat:
-            (self.D.module if self.gpu is not -1 else self.D).capture_features()
-        pred_fake = self.D(fake_AB)
+        pred_fake = (self.D.module if self.gpu is not -1 else self.D).get_features(fake_AB)
+        # pred_fake = self.D(fake_AB)
         loss_G_GAN = 0
         for preds in pred_fake:
-            loss_G_GAN += self.loss_GAN(preds, self.fake_label.expand_as(preds))
+            loss_G_GAN += self.loss_GAN(preds[-1], self.fake_label.expand_as(preds[-1]))
 
         loss_G_L1 = self.loss_L1(fake_B, real_B) * self.lambda_L1
 
         loss_G = loss_G_GAN + loss_G_L1
 
         if not self.no_feat:
-            loss_G_feat = (self.D.module if self.gpu is not -1 else self.D).feature_loss()
-            loss_G += loss_G_feat * self.lambda_feat
+            num_scales = len(pred_fake)
+            num_layers = len(pred_fake[0])
+            loss_G_feat = 0
+            for scale in range(num_scales):
+                for layer in range(num_layers):
+                    loss_G_feat += self.loss_L1(pred_fake[scale][layer], self.pred_real[scale][layer].detach())
+            loss_G += loss_G_feat * self.lambda_feat / num_scales / num_layers
 
         if not self.no_vgg:
             for mod in self.vgg_features:
@@ -293,6 +296,7 @@ class Pix2Pix(BaseModel):
         """
         os.makedirs(os.path.join(self.save_dir, "images"), exist_ok=True)
         self.model_names = ["G", "D"]
+        self.print_networks(verbose=True)
 
         if continue_train:
             start_epoch = self.get_latest_network(start_epoch, max_epoch=(num_epochs+epochs_decay))
@@ -320,14 +324,19 @@ class Pix2Pix(BaseModel):
                 real_A = data['A' if AtoB else 'B'].to(self.device)
                 real_B = data['B' if AtoB else 'A'].to(self.device)
                 fake_B = self.G(real_A)
+                # print(real_A.min(), real_A.mean(), real_A.max())
+                # print(real_B.min(), real_B.mean(), real_B.max())
+                # print(fake_B.min(), fake_B.mean(), fake_B.max())
 
                 loss_D = self.optimize_D(real_A, fake_B, real_B)
                 loss_G = self.optimize_G(real_A, fake_B, real_B)
 
-                samples = th.stack([real_A[0],fake_B[0],real_B[0]]).detach()
-
                 if i % math.ceil(total_batches * log_freq) == 0 and not (i == 0 or i == total_batches):
                     img_file = os.path.join(self.save_dir, "images", "sample_%d_%d.png"%(epoch, i))
+
+                    samples = th.stack([real_A[0],fake_B[0],real_B[0]]).detach()
+                    samples = (samples + 1) / 2.0
+
                     save_image(samples, img_file, nrow=3)
 
                     elapsed = datetime.timedelta(seconds=time.time() - start_time)
@@ -336,6 +345,10 @@ class Pix2Pix(BaseModel):
 
             if epoch % log_freq == 0:
                 img_file = os.path.join(self.save_dir, "images", "sample_%d.png" % epoch)
+
+                samples = th.stack([real_A[0],fake_B[0],real_B[0]]).detach()
+                samples = (samples + 1) / 2.0
+
                 save_image(samples, img_file, nrow=3)
 
                 elapsed = datetime.timedelta(seconds=time.time() - start_time)
