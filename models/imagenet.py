@@ -13,13 +13,13 @@ class ImageNet(nn.Module):
 
     def insert_losses(self, content_layers, style_layers, tv_weight, pooling, normalize_gradients=False,
                       layer_depth_weighting=False, content_weight=1.0, style_weight=1.0):
-        content_layers = content_layers.split(',')
-        style_layers = style_layers.split(',')
+        content_layers = content_layers.split(',') if content_layers is not '' else []
+        style_layers = style_layers.split(',') if style_layers is not '' else []
 
         # Set up the self.network, inserting style and content loss modules
         cnn = copy.deepcopy(self.features)
         self.content_losses, self.style_losses, self.tv_losses = [], [], []
-        next_content_idx, next_style_idx = 1, 1
+        next_content_idx, next_style_idx = 0, 0
         self.net = nn.Sequential()
         c, r, p, n = 0, 0, 0, 0
         if tv_weight > 0:
@@ -28,7 +28,7 @@ class ImageNet(nn.Module):
             self.tv_losses.append(tv_mod)
 
         for i, layer in enumerate(list(cnn), 1):
-            if next_content_idx <= len(content_layers) or next_style_idx <= len(style_layers):
+            if next_content_idx < len(content_layers) or next_style_idx < len(style_layers):
                 if isinstance(layer, nn.Conv2d):
                     self.net.add_module(str(n), layer)
                     n+=1
