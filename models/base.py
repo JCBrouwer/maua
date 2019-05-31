@@ -47,13 +47,13 @@ class BaseModel(th.nn.Module):
 
 
     # load network from file
-    def load_networks(self, epoch):
+    def load_networks(self, epoch, checkpoint_path=None):
         for model_name in self.model_names:
             if isinstance(epoch, str):
                 load_filename = epoch
             else:
                 load_filename = '%s_%s_net_%s.pth' % (self.name, epoch, model_name)
-            load_path = os.path.join(self.save_dir, load_filename)
+            load_path = os.path.join(self.save_dir if checkpoint_path is None else checkpoint_path, load_filename)
             net = getattr(self, model_name)
             if isinstance(net, th.nn.DataParallel):
                 net = net.module
@@ -61,12 +61,18 @@ class BaseModel(th.nn.Module):
             try:
                 state_dict = th.load(load_path, map_location=self.device)
             except FileNotFoundError:
-                print("%s checkpoint not found, initializing normally"%model_name)
+                print("%s checkpoint not found, initializing normally" % model_name)
                 continue
             if hasattr(state_dict, '_metadata'):
                 del state_dict._metadata
+
+            # hack for compatibility with differently named but otherwise identical state_dicts
+            if len(state_dict.keys()) == len(net.state_dict().keys()):
+                state_dict = {k: v for ((_, v), (k, _)) in zip(state_dict.items(), net.state_dict().items())}
+
             if state_dict.keys() != net.state_dict().keys():
                 print('checkpoint state dictionaries are not identical, some parameters may not be initialized correctly')
+
             net.load_state_dict(state_dict) #strict=False
 
 
@@ -90,7 +96,7 @@ class BaseModel(th.nn.Module):
         if start_epoch is 1:
             for e in range(max_epoch, -1, -1):
                 for file in os.listdir(self.save_dir):
-                    if fnmatch.fnmatch(file, '%s_%s_net_G.pth' % (self.name, e)):
+                    if fnmatch.fnmatch(file, '%s_%s_net_G*.pth' % (self.name, e)):
                         latest_epoch = e
                         break
                 else:

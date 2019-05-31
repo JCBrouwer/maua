@@ -5,19 +5,22 @@ from ..models import Pix2Pix
 from PIL import Image
 
 model = Pix2Pix(
-    name = 'edges2flowers',
-    save_dir = 'maua/modelzoo/flower_pix2pix',
-    direction = 'AtoB',
+    name = 'facades',
+    save_dir = 'maua/modelzoo/facades_pix2pix',
+    direction = 'BtoA',
+    norm='batch',
     lambda_L1 = 100.0,
     lambda_feat = 10.0,
     lambda_vgg = 10.0,
-    no_feat = False,
+    no_feat = True,
     no_vgg = True,
-    no_dropout = True,
+    no_dropout = False,
     no_lsgan = True,
-    n_enhancers = 1,
-    resnet_blocks = 9,
-    n_scales = 3,
+    n_enhancers = 0,
+    subnet_G='unet',
+    unet_downs=8,
+    # resnet_blocks = 9,
+    n_scales = 1,
     n_layers_D = 3,
     gpu = 0,
     seed = 27
@@ -25,22 +28,18 @@ model = Pix2Pix(
 
 
 model.train(
-    data_path = 'maua/datasets/flower_pix2pix',
-    num_epochs = 30,
-    epochs_decay = 20,
+    continue_train=True,
+    data_path = 'maua/datasets/facades_pix2pix',
+    num_epochs = 200,
+    epochs_decay = 100,
     save_freq = 5,
-    log_freq = .25,
-    batch_size = 24,
+    log_freq = 1,
+    batch_size = 1,
     shuffle = True,
     resize = True,
-    loadSize = 256,
-    crop = False,
+    fineSize = 256,
+    loadSize = 286,
+    crop = True,
     vflip = False,
     hflip = True
 )
-
-result = model(tn.ToTensor()(Image.open('maua/datasets/flower_pix2pix/test/1.jpg').convert('RGB')).unsqueeze(0))
-save_image(result, 'maua/output/pix2pix_flower1.png')
-
-result = model(tn.ToTensor()(Image.open('maua/datasets/flower_pix2pix/test/2.jpg').convert('RGB')).unsqueeze(0))
-save_image(result, 'maua/output/pix2pix_flower2.png')

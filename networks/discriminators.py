@@ -23,12 +23,12 @@ class MultiscaleDiscriminator(nn.Module):
         # return list of lists of activations at each layer for each discriminator scale
         results = []
         for scale in range(self.n_scales):
-            # get separate layers of discriminator
-            discrim_seq = getattr(self, 'discriminator_%s'%(scale)).model
-            layers = {k:v for (k,v) in discrim_seq.named_children() if 'layer' in k}
-
             # scale input for given discrim scale
             prev_output = interpolate(input, scale_factor=2**(scale - self.n_scales + 1))
+
+            # get separate layers of discriminator
+            discriminator = getattr(self, 'discriminator_%s'%(scale)).model
+            layers = {k:v for (k,v) in discriminator.named_children() if 'layer' in k}
 
             # forward through the network storing discriminator features by layer
             per_scale_results = []
@@ -37,11 +37,11 @@ class MultiscaleDiscriminator(nn.Module):
                 prev_output = layer(prev_output)
                 per_scale_results.append(prev_output)
 
-            final_preds = getattr(discrim_seq, 'final_conv')(per_scale_results[-1])
+            final_preds = getattr(discriminator, 'final_conv')(per_scale_results[-1])
             per_scale_results.append(final_preds)
 
             if self.use_sigmoid:
-                final_preds = getattr(discrim_seq, 'sigmoid')(final_preds)
+                final_preds = getattr(discriminator, 'sigmoid')(final_preds)
                 per_scale_results.append(final_preds)
 
             results.append(per_scale_results)
@@ -49,13 +49,13 @@ class MultiscaleDiscriminator(nn.Module):
 
     def forward(self, input):
         # forward with input downsampled for each scale
-        # return list of lists of predictions for each discriminator scale
+        # return list of predictions for each discriminator scale
         results = []
         for scale in range(self.n_scales):
             discriminator = getattr(self, 'discriminator_%s'%(scale))
             downsampled_input = interpolate(input, scale_factor=2**(scale - self.n_scales + 1))
             predictions = discriminator(downsampled_input)
-            results += predictions
+            results.append(predictions)
         return results
                 
 
@@ -103,7 +103,7 @@ class NLayerDiscriminator(nn.Module):
             self.model.add_module("sigmoid", nn.Sigmoid())
 
     def forward(self, input):
-        return [self.model(input)]
+        return self.model(input)
 
 
 class ProGrowDiscriminator(nn.Module):

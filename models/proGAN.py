@@ -274,7 +274,7 @@ class ProGAN(BaseModel):
                     loss_D += self.optimize_D(noise, images, depth, alpha)
                     loss_G += self.optimize_G(noise, images, depth, alpha)
 
-                    if i % math.ceil(total_batches * log_freq) == 0 and not i == 0:
+                    if i % math.ceil(total_batches * log_freq) == 0 and not i == 0 and log_freq < 1:
                         elapsed = str(datetime.timedelta(seconds=time.time() - global_time))
                         print("Elapsed: [%s] Batch: %d / %d d_loss: %f  g_loss: %f" %
                                 (elapsed, i, total_batches, loss_D / math.ceil(total_batches*log_freq),

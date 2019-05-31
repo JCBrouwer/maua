@@ -8,7 +8,7 @@ import functools
 class MultiscaleGenerator(nn.Module):
     def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False,
                  n_blocks=9, n_downsampling=4, n_enhancers=1, n_blocks_enhancer=3,
-                 padding_type='reflect', use_deconvolution=True, subnet='resnet'):
+                 padding_type='reflect', use_deconvolution=True, subnet='resnet', unet_downs=8):
         # main generator (resnet or unet) first, without last couple conv layers
         # then n_enhancers that double resolution (1/2 ngf each time)
         # accessible by downsample & upsampling blocks (setattr)
@@ -16,13 +16,15 @@ class MultiscaleGenerator(nn.Module):
 
         self.n_enhancers = n_enhancers
         if subnet is 'resnet':
-            mainG = ResnetGenerator(input_nc, output_nc, ngf * 2**(n_enhancers - 1), norm_layer, use_dropout,
+            m_ngf = ngf * 2**(n_enhancers - 1) if n_enhancers != 0 else ngf
+            mainG = ResnetGenerator(input_nc, output_nc, m_ngf, norm_layer, use_dropout,
                                     n_blocks, n_downsampling, padding_type, use_deconvolution)
             # remove last couple conv layers
             if n_enhancers != 0: mainG = nn.Sequential(*mainG.model[:-3])
-        # elif subnet is 'unet':
-        #     mainG = UnetGenerator(input_nc, output_nc, num_downs=n_downsampling, ngf * 2**n_enhancers,
-        #                           norm_layer, use_dropout)
+        elif subnet is 'unet':
+            m_ngf = ngf * 2**(n_enhancers - 1) if n_enhancers != 0 else ngf
+            mainG = UnetGenerator(input_nc=input_nc, output_nc=output_nc, num_downs=unet_downs,
+                                  ngf=m_ngf, norm_layer=norm_layer, use_dropout=use_dropout)
         else:
             print("Unknown sub network type")
 
@@ -31,21 +33,21 @@ class MultiscaleGenerator(nn.Module):
         for n in range(1, n_enhancers + 1):
             e_ngf = int(ngf * 2**(n_enhancers - n - 1))
 
-            if subnet is 'resnet':
-                enhanceG = ResnetGenerator(input_nc=input_nc, output_nc=output_nc, ngf=e_ngf,
-                                           norm_layer=norm_layer, use_dropout=use_dropout,
-                                           n_blocks=n_blocks_enhancer, n_downsampling=1,
-                                           padding_type=padding_type, use_deconvolution=use_deconvolution)
+            # if subnet is 'resnet':
+            enhanceG = ResnetGenerator(input_nc=input_nc, output_nc=output_nc, ngf=e_ngf,
+                                        norm_layer=norm_layer, use_dropout=use_dropout,
+                                        n_blocks=n_blocks_enhancer, n_downsampling=1,
+                                        padding_type=padding_type, use_deconvolution=use_deconvolution)
 
-                downsample_block = nn.Sequential(*enhanceG.model[:7])
-                upsample_block = nn.Sequential(*enhanceG.model[7:])
+            downsample_block = nn.Sequential(*enhanceG.model[:7])
+            upsample_block = nn.Sequential(*enhanceG.model[7:])
 
-                # don't need final output conv layers except on last enhancer
-                if not n == n_enhancers:
-                    upsample_block = nn.Sequential(*upsample_block[:-3])
+            # don't need final output conv layers except on last enhancer
+            if not n == n_enhancers:
+                upsample_block = nn.Sequential(*upsample_block[:-3])
 
-                setattr(self, 'downsample_%s'%(n), downsample_block)
-                setattr(self, 'upsample_%s'%(n), upsample_block)
+            setattr(self, 'downsample_%s'%(n), downsample_block)
+            setattr(self, 'upsample_%s'%(n), upsample_block)
             # elif subnet is 'unet':
             #     enhanceG = UnetGenerator(input_nc, output_nc, n_downsampling, e_ngf, norm_layer, use_dropout)
 
@@ -54,8 +56,8 @@ class MultiscaleGenerator(nn.Module):
 
             #     if not n is n_enhancers:
             #         enhanceG = 
-            else:
-                print("Unknown sub network type")
+            # else:
+            #     print("Unknown sub network type")
     
     def forward(self, input):
         # for each scale (main G + n_enhancers)

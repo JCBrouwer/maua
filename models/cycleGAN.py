@@ -7,17 +7,17 @@ from torchvision.utils import save_image
 import torchvision.transforms as tn
 from ..dataloaders.pix2pix import *
 from .base import BaseModel
-from ..networks.generators import MultiscaleGenerator
+from ..networks.generators import MultiscaleGenerator, ResnetGenerator
 from ..networks.discriminators import MultiscaleDiscriminator
 
 
 class CycleGAN(BaseModel):
-    def __init__(self, input_nc=3, output_nc=3, ngf=32, ndf=32, subnet_G='resnet', unet_downs=8,
-                resnet_blocks=9, n_layers_D=2, norm='batch', pool_size=50, no_dropout=False, no_lsgan=True,
-                no_feat=False, no_vgg=True, init_type='normal', init_gain=0.02, lr=0.0002, beta1=0.5, beta2=0.999,
-                n_enhancers=1, n_scales=2, lambda_feat=10.0, lambda_A=10.0, lambda_B=10.0,
-                lambda_identity=0.5, lambda_vgg=1.0, vgg_type='vgg19', pooling='max',
-                style_layers="", content_layers="", **kwargs):
+    def __init__(self, input_nc=3, output_nc=3, ngf=64, ndf=64, subnet_G='resnet', unet_downs=8,
+                resnet_blocks=9, n_layers_D=3, norm='instance', pool_size=50, no_dropout=True, no_lsgan=False,
+                no_feat=True, no_vgg=True, init_type='normal', init_gain=0.02, lr=0.0002, beta1=0.5, beta2=0.999,
+                n_enhancers=0, n_scales=1, lambda_feat=0.5, lambda_A=10.0, lambda_B=10.0,
+                lambda_identity=0.5, lambda_vgg=0.0, vgg_type='vgg19', vgg_pooling='max',
+                style_layers="relu1_1,relu2_1,relu3_1,relu4_1,relu5_1", content_layers="", **kwargs):
         """
         constructor for the class CycleGAN, extends BaseModel
         :param input_nc: number of channels of input images
@@ -33,20 +33,20 @@ class CycleGAN(BaseModel):
                                 weight of the identity loss should be 10 times smaller than the weight
                                 of the reconstruction loss, set lambda_identity = 0.1
         :param n_enhancers: number of enhancer networks in the generator
-        :param n_scales: number of scales in the discriminator (if type is multiscale)
-        :param n_layers_D: number of layers in the discriminator (if type is n_layers)
+        :param n_scales: number of scales in the discriminator
+        :param n_layers_D: number of layers in each discriminator
         :param subnet_G: type of network to use in the generator, options: [resnet, unet]
         :param resnet_blocks: number of blocks in Resnet generator (if type is resnet)
         :param unet_downs: number of downsamplings in Unet generator (if type is unet)
                             e.g. if unet_downs is 7, 128x128 image will be size 1x1 at the bottleneck
         :param norm: instance normalization or batch normalization
         :param vgg_type: type of model to use for vgg feature normalization, options [vgg19, vgg16, nin]
-        :param pooling: type of pooling to use in vgg model, options [max, avg]
+        :param vgg_pooling: type of pooling to use in vgg model, options [max, avg]
         :param content_layers: layers to insert vgg feature losses on
         :param style_layers: same as content_layers but will match gram matrices instead
         :param pool_size: the size of image buffer that stores previously generated images
         :param no_dropout: no dropout for the generator
-        :param no_lsgan: do *not* use least square GAN, if false, use vanilla GAN
+        :param no_lsgan: do *not* use least square GAN, use vanilla GAN instead
         :param no_feat: do *not* use discriminator feature loss
         :param no_vgg: do *not* use vgg feature loss. VGG LOSS IS BROKEN AT THE MOMENT, LEAVE THIS True
         :param init_type: network initialization, options: [normal, xavier, kaiming, orthogonal]
@@ -64,15 +64,15 @@ class CycleGAN(BaseModel):
         norm_layer = self.get_norm_layer(norm_type=norm)
 
         net = MultiscaleGenerator(input_nc=input_nc, output_nc=output_nc, ngf=ngf, norm_layer=norm_layer,
-                                  use_dropout=not no_dropout, n_blocks=resnet_blocks, n_enhancers=n_enhancers,
-                                  subnet=subnet_G,  n_blocks_enhancer=3, padding_type='reflect',
-                                  use_deconvolution=True, n_downsampling=3)
+                                    use_dropout=not no_dropout, n_blocks=resnet_blocks, n_enhancers=n_enhancers,
+                                    subnet=subnet_G,  n_blocks_enhancer=3, padding_type='reflect',
+                                    use_deconvolution=True, n_downsampling=4)
         self.G_A = self.init_net(net, init_type, init_gain)
 
         net = MultiscaleGenerator(input_nc=output_nc, output_nc=input_nc, ngf=ngf, norm_layer=norm_layer,
-                                  use_dropout=not no_dropout, n_blocks=resnet_blocks, n_enhancers=n_enhancers,
-                                  subnet=subnet_G,  n_blocks_enhancer=3, padding_type='reflect',
-                                  use_deconvolution=True, n_downsampling=3)
+                                    use_dropout=not no_dropout, n_blocks=resnet_blocks, n_enhancers=n_enhancers,
+                                    subnet=subnet_G,  n_blocks_enhancer=3, padding_type='reflect',
+                                    use_deconvolution=True, n_downsampling=4)
         self.G_B = self.init_net(net, init_type, init_gain)
 
         use_sigmoid = no_lsgan
@@ -112,7 +112,7 @@ class CycleGAN(BaseModel):
         self.no_vgg = no_vgg
         self.no_feat = no_feat
         if not self.no_vgg:
-            self.vgg, self.vgg_features = self.get_vgg(vgg_type, pooling, content_layers, style_layers)
+            self.vgg, self.vgg_features = self.get_vgg(vgg_type, vgg_pooling, content_layers, style_layers)
 
 
     def get_vgg(self, vgg_type, pooling, content_layers, style_layers):
@@ -218,28 +218,23 @@ class CycleGAN(BaseModel):
 
 
     def backward_D_basic(self, D, real, fake):
-        self.set_requires_grad(D, True)
-        self.optimizer_D.zero_grad()
+        # Real
+        D.pred_real = (D.module if self.gpu is not -1 else D).get_features(real)
+        # pred_real = D(real)
+        loss_D_real = 0
+        for preds in D.pred_real:
+            loss_D_real += self.loss_GAN(preds[-1], self.real_label.expand_as(preds[-1]))
+            # loss_D_real += self.loss_GAN(preds, self.real_label.expand_as(preds))
+
         # Fake
         pred_fake = D(fake.detach())
         loss_D_fake = 0
         for preds in pred_fake:
             loss_D_fake += self.loss_GAN(preds, self.fake_label.expand_as(preds))
 
-        # capture discriminator feature targets with real inputs
-        if not self.no_feat:
-            (D.module if self.gpu is not -1 else D).capture_feature_targets()
-        
-        # Real
-        pred_real = D(real)
-        loss_D_real = 0
-        for preds in pred_real:
-            loss_D_real += self.loss_GAN(preds, self.real_label.expand_as(preds))
-
         # Combined loss
         loss_D = (loss_D_real + loss_D_fake) * 0.5
         loss_D.backward()
-        self.optimizer_D.step()
         return loss_D.item()
 
 
@@ -254,9 +249,6 @@ class CycleGAN(BaseModel):
 
 
     def backward_G(self, fake_A, fake_B, rec_A, rec_B, real_A, real_B):
-        self.set_requires_grad(self.D_A, False)
-        self.set_requires_grad(self.D_B, False)
-        self.optimizer_G.zero_grad()
         # Identity loss
         if self.lambda_identity > 0:
             # G_A should be identity if real_B is fed.
@@ -268,22 +260,23 @@ class CycleGAN(BaseModel):
         else:
             loss_idt_A = 0
             loss_idt_B = 0
-        
-        # capture discriminator features on fake inputs
-        if not self.no_feat:
-            (self.D_A.module if self.gpu is not -1 else self.D_A).capture_features()
-            (self.D_B.module if self.gpu is not -1 else self.D_B).capture_features()
 
         # GAN loss D_A(G_A(A))
+        pred_fake_A = (self.D_A.module if self.gpu is not -1 else self.D_A).get_features(fake_B)
+        # pred_fake_A = self.D_A(fake_B)
         loss_G_A = 0
-        for preds in self.D_A(fake_B):
-            loss_G_A += self.loss_GAN(preds, self.fake_label.expand_as(preds))
+        for preds in pred_fake_A:
+            loss_G_A += self.loss_GAN(preds[-1], self.fake_label.expand_as(preds[-1]))
+            # loss_G_A += self.loss_GAN(preds, self.fake_label.expand_as(preds))
 
         # GAN loss D_B(G_B(B))
+        pred_fake_B = (self.D_B.module if self.gpu is not -1 else self.D_B).get_features(fake_A)
+        # pred_fake_B = self.D_B(fake_A)
         loss_G_B = 0
-        for preds in self.D_B(fake_A):
-            loss_G_B += self.loss_GAN(preds, self.fake_label.expand_as(preds))
-
+        for preds in pred_fake_B:
+            loss_G_B += self.loss_GAN(preds[-1], self.fake_label.expand_as(preds[-1]))
+            # loss_G_B += self.loss_GAN(preds, self.fake_label.expand_as(preds))
+            
         # cycle losses
         loss_cycle_A = self.loss_cycle(rec_A, real_A) * self.lambda_A
         loss_cycle_B = self.loss_cycle(rec_B, real_B) * self.lambda_B
@@ -291,13 +284,37 @@ class CycleGAN(BaseModel):
         # combined loss
         loss_G = loss_G_A + loss_G_B + loss_cycle_A + loss_cycle_B + loss_idt_A + loss_idt_B
 
-        # discriminator feature losses
+        # discriminator mean feature losses
         if not self.no_feat:
-            loss_G_feat = (self.D_A.module if self.gpu is not -1 else self.D).feature_loss()
-            loss_G_feat += (self.D_B.module if self.gpu is not -1 else self.D).feature_loss()
-            loss_G += loss_G_feat * self.lambda_feat
+            num_scales = len(pred_fake_A)
+            num_layers = len(pred_fake_A[0])
+
+            loss_G_feat = 0
+            for scale in range(num_scales):
+                for layer in range(num_layers):
+                    loss_G_feat += nn.L1Loss()(pred_fake_A[scale][layer].mean(0), self.D_A.pred_real[scale][layer].mean(0).detach())
+            loss_G += loss_G_feat * self.lambda_feat / num_scales / num_layers
+            
+            loss_G_feat = 0
+            for scale in range(num_scales):
+                for layer in range(num_layers):
+                    loss_G_feat += nn.L1Loss()(pred_fake_B[scale][layer].mean(0), self.D_B.pred_real[scale][layer].mean(0).detach())
+            loss_G += loss_G_feat * self.lambda_feat / num_scales / num_layers
 
         # if not self.no_vgg:
+        #     loss_G_VGG = 0
+
+        #     for mod in self.vgg_features:
+        #         mod.mode = 'capture'
+        #     self.vgg(real_A)
+            
+        #     for mod in self.vgg_features:
+        #         mod.mode = 'loss'
+        #     self.vgg(fake_A)
+
+        #     for i,mod in enumerate(self.vgg_features):
+        #         loss_G_VGG += mod.loss * self.lambda_vgg
+
         #     for mod in self.vgg_features:
         #         mod.mode = 'capture'
         #     self.vgg(real_B)
@@ -306,15 +323,12 @@ class CycleGAN(BaseModel):
         #         mod.mode = 'loss'
         #     self.vgg(fake_B)
 
-        #     loss_G_VGG = 0
         #     for i,mod in enumerate(self.vgg_features):
         #         loss_G_VGG += mod.loss * self.lambda_vgg
 
         #     loss_G += loss_G_VGG
 
         loss_G.backward()
-        self.optimizer_G.step()
-
         return loss_G.item()
 
     def train(self, continue_train=False, data_path='maua/datasets/default_pix2pix',
@@ -346,6 +360,7 @@ class CycleGAN(BaseModel):
         """
         os.makedirs(os.path.join(self.save_dir, "images"), exist_ok=True)
         self.model_names = ['G_A', 'G_B', 'D_A', 'D_B']
+        self.print_networks(verbose=True)
 
         if continue_train:
             start_epoch = self.get_latest_network(start_epoch, max_epoch=(num_epochs+epochs_decay))
@@ -373,16 +388,23 @@ class CycleGAN(BaseModel):
                 real_B = data['B'].to(self.device)
                 fake_A, fake_B, rec_A, rec_B = self.forward(real_A, real_B)
 
-                # D_A and D_B
+                self.set_requires_grad([self.D_A, self.D_B], True)
+                self.optimizer_D.zero_grad()
                 loss_D = self.backward_D_A(fake_B, real_B)
                 loss_D += self.backward_D_B(fake_A, real_A)
-                # G_A and G_B
-                loss_G = self.backward_G(fake_A, fake_B, rec_A, rec_B, real_A, real_B)
+                self.optimizer_D.step()
 
-                samples = th.stack([real_A[0],fake_B[0],rec_A[0],real_B[0],fake_A[0],rec_B[0]]).detach()
+                self.set_requires_grad([self.D_A, self.D_B], False)
+                self.optimizer_G.zero_grad()        
+                loss_G = self.backward_G(fake_A, fake_B, rec_A, rec_B, real_A, real_B)
+                self.optimizer_G.step()
 
                 if i % math.ceil(total_batches * log_freq) == 0 and not (i == 0 or i == total_batches):
                     img_file = os.path.join(self.save_dir, "images", "sample_%d_%d.png"%(epoch, i))
+
+                    samples = th.stack([real_A[0],fake_B[0],rec_A[0],real_B[0],fake_A[0],rec_B[0]]).detach()
+                    samples = (samples + 1) / 2.0
+                    
                     save_image(samples, img_file, nrow=3)
 
                     elapsed = datetime.timedelta(seconds=time.time() - start_time)
@@ -391,6 +413,10 @@ class CycleGAN(BaseModel):
 
             if epoch % log_freq == 0:
                 img_file = os.path.join(self.save_dir, "images", "sample_%d.png" % epoch)
+
+                samples = th.stack([real_A[0],fake_B[0],rec_A[0],real_B[0],fake_A[0],rec_B[0]]).detach()
+                samples = (samples + 1) / 2.0
+
                 save_image(samples, img_file, nrow=3)
 
                 elapsed = datetime.timedelta(seconds=time.time() - start_time)

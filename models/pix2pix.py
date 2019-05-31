@@ -62,7 +62,7 @@ class Pix2Pix(BaseModel):
         net = MultiscaleGenerator(input_nc=input_nc, output_nc=output_nc, ngf=ngf, norm_layer=norm_layer,
                                   use_dropout=not no_dropout, n_blocks=resnet_blocks, n_enhancers=n_enhancers,
                                   subnet=subnet_G,  n_blocks_enhancer=3, padding_type='reflect',
-                                  use_deconvolution=True, n_downsampling=4)
+                                  use_deconvolution=True, n_downsampling=4, unet_downs=unet_downs)
         self.G = self.init_net(net, init_type, init_gain)
 
         use_sigmoid = no_lsgan
@@ -192,17 +192,16 @@ class Pix2Pix(BaseModel):
 
 
     def optimize_D(self, real_A, fake_B, real_B):
-        real_AB = th.cat((real_A, real_B), 1)
-        fake_AB = self.fake_AB_pool.query(th.cat((real_A, fake_B), 1))
-
         self.set_requires_grad(self.D, True)
         self.optimizer_D.zero_grad()
 
+        fake_AB = self.fake_AB_pool.query(th.cat((real_A, fake_B), 1))
         pred_fake = self.D(fake_AB.detach()) # detach to prevent gradient propagating to G
         loss_D_fake = 0
         for preds in pred_fake:
             loss_D_fake += self.loss_GAN(preds, self.fake_label.expand_as(preds))
 
+        real_AB = th.cat((real_A, real_B), 1)
         self.pred_real = (self.D.module if self.gpu is not -1 else self.D).get_features(real_AB)
         # self.pred_real = self.D(real_AB)
         loss_D_real = 0
@@ -217,11 +216,10 @@ class Pix2Pix(BaseModel):
 
 
     def optimize_G(self, real_A, fake_B, real_B):
-        fake_AB = th.cat((real_A, fake_B), 1)
-
         self.set_requires_grad(self.D, False)
         self.optimizer_G.zero_grad()
         
+        fake_AB = th.cat((real_A, fake_B), 1)
         pred_fake = (self.D.module if self.gpu is not -1 else self.D).get_features(fake_AB)
         # pred_fake = self.D(fake_AB)
         loss_G_GAN = 0
@@ -324,13 +322,10 @@ class Pix2Pix(BaseModel):
                 real_A = data['A' if AtoB else 'B'].to(self.device)
                 real_B = data['B' if AtoB else 'A'].to(self.device)
                 fake_B = self.G(real_A)
-                # print(real_A.min(), real_A.mean(), real_A.max())
-                # print(real_B.min(), real_B.mean(), real_B.max())
-                # print(fake_B.min(), fake_B.mean(), fake_B.max())
 
                 loss_D = self.optimize_D(real_A, fake_B, real_B)
                 loss_G = self.optimize_G(real_A, fake_B, real_B)
-
+                
                 if i % math.ceil(total_batches * log_freq) == 0 and not (i == 0 or i == total_batches):
                     img_file = os.path.join(self.save_dir, "images", "sample_%d_%d.png"%(epoch, i))
 
