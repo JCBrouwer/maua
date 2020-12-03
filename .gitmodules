@@ -1,0 +1,6 @@
+[submodule "maua-style"]
+	path = maua-style
+	url = https://github.com/JCBrouwer/maua-style.git
+[submodule "maua-stylegan2"]
+	path = maua-stylegan2
+	url = https://github.com/JCBrouwer/maua-stylegan2.git

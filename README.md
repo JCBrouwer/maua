@@ -1,4 +1,7 @@
 # Maua
+
+This repo is pretty stale at the moment...
+
 ## v0.2
 
 Maua is a framework that allows for easy training of and interoperability between multiple state of the art image processing networks. Maua provides a modular object oriented API that allows uses ranging from piecing together low level components into a new architecture to training a GAN with a single command.
@@ -8,6 +11,7 @@ Those with little experience can use Maua without needing to know all of the det
 Maua seeks to integrate many different approaches under a single umbrella to streamline pipelines which would otherwise span multiple frameworks/languages/repositories/etc. with manual intermediate steps into a couple short and sweet python scripts. This way it is easier to push the creative boundaries of machine learning approaches without having to spend so much time installing and figuring out new, badly documented research repositories.
 
 NOTE: Maua is still at an early stage of development, weird bugs/behaviors/expectations still lurk in the code that will slowly be ironed out as the framework matures.
+
 
 
 ## Installation
@@ -57,43 +61,6 @@ Also included is a script, voltaStyle.py, that uses progressively smaller ImageN
 Note that using NeuralStyle without specifying a model_file will download the respective model to your modelzoo.
 
 Normalizing gradients is not yet fully functioning, this feature should be left False for the time being.
-
-
-## Roadmap
-
-Below is a list of planned features and improvements:
-
-- Style Transfer
-    - Tiling
-    - Optic flow weighting / video style transfer
-    - Segmentation maps
-	- Deep painterly harmonization
-- Pix2Pix
-    - Easy frame prediction models
-        - Frechet video distance loss (pretrained I3D feature loss)
-        - Scheduled sampling
-    - Segmentation & instance maps
-- ProGAN
-    - Conditional ProGAN
-	- Self attention loss
-	- ~Relativistic hinge loss~
-	- ~Ganstability loss (R1 regularization)~
-- Video / GLWindow
-    - Video writer
-    - MIDI/keyboard interactivity
-    - Music responsiveness
-    - GL filters & effects
-- More Networks
-    - CycleGAN
-    - CPPNs
-    - DeepDream / Lucid
-    - FAMos
-	- SAVP
-	- SRGAN
-	- vid2vid / RecycleGAN
-- YAML Config System
-- Gradient accumulation
-- Options for 32, 16, or 8 bit float/int computation
 
 
 ## Acknowledgments
